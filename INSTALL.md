@@ -12,7 +12,7 @@
 - Bybit Demo Trading API anahtarı
 - TypeSafe Jev API anahtarı
 - Neon veya Vercel Marketplace üzerinden bağlanmış PostgreSQL
-- 15 dakikalık yerleşik cron için Vercel Pro/Enterprise
+- 15 dakikalık çağrı için ücretsiz cron-job.org hesabı
 
 ### 1. Yerel kurulum
 
@@ -116,13 +116,24 @@ En az 32 rastgele karakter kullanın:
 CRON_SECRET=...
 ```
 
-Vercel bu değeri `/api/cron` çağrısına otomatik olarak `Authorization: Bearer ...` başlığıyla ekler. URL query parametresi desteklenmez; secret loglara sızdırılmamalıdır.
+Bu değeri Vercel Production Environment Variables alanına ekleyin. cron-job.org görevinde de aynı değeri `Authorization: Bearer ...` istek başlığı olarak kullanın. URL query parametresi desteklenmez; secret URL'ye veya loglara yazılmamalıdır.
 
 Yerel manuel test:
 
 ```powershell
 curl.exe -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/cron
 ```
+
+cron-job.org üzerinde görev oluşturun:
+
+1. URL: `https://YOUR_PROJECT.vercel.app/api/cron`
+2. İstek yöntemi: `GET`
+3. Zamanlama: her saat `00`, `15`, `30`, `45` dakikaları
+4. Zaman dilimi: `UTC`
+5. İstek başlığı: `Authorization` = `Bearer YOUR_CRON_SECRET`
+6. Mümkünse istek zaman aşımını `60` saniye yapın ve yanıt gövdesi saklamayı kapatın.
+
+Görevi önce **Test run** ile çalıştırın. Başarılı cevap `200` ve `{"success":true,...}` döndürür. Aynı 15 dakikalık pencere daha önce çalıştıysa güvenli biçimde `skipped:true` dönebilir.
 
 ### 7. Yerel doğrulama
 
@@ -149,11 +160,12 @@ Kontrol adresleri:
 3. `.env.example` içindeki değişkenleri Production environment'a ekleyin.
 4. İlk deploy sırasında `TRADING_ENABLED=false` kullanın.
 5. `/api/health`, dashboard ve manuel cron çağrısını doğrulayın.
-6. Vercel Cron ekranında `*/15 * * * *` görevinin aktif olduğunu kontrol edin.
-7. Demo Trading spot emirlerini doğruladıktan sonra gerekiyorsa `TRADING_ENABLED=true` yapıp yeniden deploy edin.
-8. Üretim URL'sini `NEXT_PUBLIC_APP_URL` olarak ekleyin ve README'deki Live deployment satırını gerçek URL ile değiştirin.
+6. cron-job.org görevini yukarıdaki URL, zamanlama ve Bearer başlığıyla oluşturup test edin.
+7. cron-job.org geçmişinde çağrının `200` döndüğünü, dashboard'da yeni çevrimin ve snapshot'ın oluştuğunu kontrol edin.
+8. Demo Trading spot emirlerini doğruladıktan sonra gerekiyorsa `TRADING_ENABLED=true` yapıp yeniden deploy edin.
+9. Üretim URL'sini `NEXT_PUBLIC_APP_URL` olarak ekleyin ve README'deki Live deployment satırını gerçek URL ile değiştirin.
 
-> Vercel Hobby, günde birden sık cron ifadesini deploy etmez. Pro/Enterprise kullanın veya harici zamanlayıcıyı aynı Authorization başlığıyla `/api/cron` adresine yönlendirin.
+> Depoyu Vercel Hobby ile uyumlu tutmak için `vercel.json` içinde yerleşik cron tanımı bulunmaz. Zamanlama cron-job.org tarafından gerçekleştirilir.
 
 ---
 
@@ -165,7 +177,7 @@ Kontrol adresleri:
 - Bybit Demo Trading API key
 - TypeSafe Jev API key
 - Neon/PostgreSQL connected through Vercel Marketplace or directly
-- Vercel Pro/Enterprise for the built-in 15-minute cron
+- A free cron-job.org account for the 15-minute trigger
 
 ### 1. Local setup
 
@@ -256,6 +268,17 @@ Use `/api/health` to check configuration readiness without exposing secret value
 curl -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/cron
 ```
 
+Create a job at cron-job.org:
+
+1. URL: `https://YOUR_PROJECT.vercel.app/api/cron`
+2. Request method: `GET`
+3. Schedule: minutes `00`, `15`, `30`, `45` of every hour
+4. Time zone: `UTC`
+5. Request header: `Authorization` = `Bearer YOUR_CRON_SECRET`
+6. If available, set the timeout to `60` seconds and disable response-body storage.
+
+Run **Test run** first. A successful request returns HTTP `200` with `{"success":true,...}`. If that 15-minute window was already processed, `skipped:true` is also a safe successful result.
+
 ### 6. Vercel deployment
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnevzataksoy%2Fjev-trader-bybit)
@@ -265,8 +288,9 @@ curl -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/cron
 3. Add all `.env.example` variables to the Production environment.
 4. Keep `TRADING_ENABLED=false` for the first deployment.
 5. Verify `/api/health`, the dashboard and a manual authenticated cron request.
-6. Confirm the `*/15 * * * *` job in Vercel's Cron Jobs page.
-7. Enable Demo Trading spot execution only after the observation run is healthy.
-8. Set `NEXT_PUBLIC_APP_URL` and replace the README live-deployment placeholder with the real Vercel URL.
+6. Create and test the cron-job.org job with the URL, schedule and Bearer header above.
+7. Confirm an HTTP `200` in cron-job.org history and a new cycle/snapshot on the dashboard.
+8. Enable Demo Trading spot execution only after the observation run is healthy.
+9. Set `NEXT_PUBLIC_APP_URL` and replace the README live-deployment placeholder with the real Vercel URL.
 
-Vercel Hobby only permits daily cron execution. Use Pro/Enterprise for the native 15-minute schedule or call `/api/cron` from an external scheduler with the same Bearer authorization header.
+The repository intentionally has no native Vercel Cron definition so it can deploy on Vercel Hobby. Scheduling is handled by cron-job.org.

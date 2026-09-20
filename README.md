@@ -30,7 +30,7 @@ Düşüş rejiminde yeni alım ancak kısa dönem momentum, aşırı satış, ha
 ### 15 dakikalık karar döngüsü
 
 ```text
-Vercel Cron
+cron-job.org
    │
    ├─ Bybit Demo spot ────> bakiyeler + açık emirler + emir/gerçekleşme geçmişi
    ├─ Bybit ana ağı ──────> fiyat + mumlar + order book + piyasa göstergeleri
@@ -55,7 +55,7 @@ Jev yalnızca tipli bir karar üretir. Emir miktarı, izin verilen varlıklar, m
 - Her emir için benzersiz `orderLinkId` oluşturulur.
 - Hedef varlıklar kod seviyesinde USDT, BTC, ETH ve XAUT ile sınırlandırılmıştır.
 - Bybit’in sembol bazlı minimum miktar ve adım kuralları emirden önce okunur.
-- Cron endpoint’i yalnızca Vercel `CRON_SECRET` Bearer başlığıyla çalışır.
+- Cron endpoint’i yalnızca Vercel ortamındaki `CRON_SECRET` ile eşleşen Bearer başlığıyla çalışır.
 - API anahtarları hiçbir zaman istemci paketine veya dashboard cevabına eklenmez.
 
 ### Dashboard
@@ -77,12 +77,12 @@ TR/EN dashboard aşağıdakileri gösterir:
 - Official `@typesafe-ai/sdk` (`systemOne`, typed choice questions)
 - `bybit-api` V5 SDK
 - Local PostgreSQL and Neon-compatible storage via `postgres`
-- Vercel Cron
+- Vercel Hobby + cron-job.org zamanlayıcısı
 - Vitest, ESLint and TypeScript quality gates
 
-### Önemli Vercel notu
+### Zamanlayıcı
 
-Vercel Hobby planı cron görevlerini günde yalnızca bir kez çalıştırır. `*/15 * * * *` zamanlaması için **Vercel Pro/Enterprise** veya `/api/cron` adresini aynı Bearer başlığıyla çağıran harici bir zamanlayıcı gerekir.
+Proje Vercel Hobby ile deploy edilebilmesi için yerleşik Vercel Cron tanımı içermez. cron-job.org her saatin `00, 15, 30, 45` dakikalarında `GET https://<uygulama-adresi>/api/cron` çağrısı yapar ve Vercel'deki `CRON_SECRET` ile aynı değeri `Authorization: Bearer <secret>` başlığında gönderir.
 
 ### Sorumluluk reddi
 
@@ -130,16 +130,16 @@ Every successful cycle stores:
 - A PostgreSQL cycle key prevents duplicate execution within the same 15-minute window.
 - Missing critical data and provider errors fail closed.
 - Exchange instrument filters are loaded before sizing an order.
-- The cron endpoint requires Vercel's `CRON_SECRET` Bearer header.
+- The cron endpoint requires a Bearer header matching the `CRON_SECRET` stored in Vercel.
 - Secrets remain server-side and are never returned to the dashboard.
 
 ### Dashboard
 
 The always-available TR/EN dashboard presents the daily USDT capital curve, asset allocation, live prices, infrastructure status, Jev decisions, confidence and probabilities, execution outcomes, filtered order history, separate order/fill timestamps, an understandable pipeline explanation, and a visible real-account risk disclosure.
 
-### Vercel requirement
+### Scheduler
 
-Vercel Hobby cron jobs can run only once per day. The `*/15 * * * *` schedule requires **Vercel Pro/Enterprise** or an external scheduler that calls `/api/cron` with the same Bearer authorization header.
+The repository does not include a native Vercel Cron definition, so it can deploy on Vercel Hobby. cron-job.org calls `GET https://<deployment-url>/api/cron` at minutes `00, 15, 30, 45` of every hour and sends the same secret stored in Vercel as `Authorization: Bearer <secret>`.
 
 ### Disclaimer
 

@@ -2,7 +2,7 @@
 
 [Türkçe](#türkçe) · [English](#english) · [Installation](./INSTALL.md) · [Deploy on Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnevzataksoy%2Fjev-trader-bybit)
 
-> Live deployment URL: set `NEXT_PUBLIC_APP_URL` after the first Vercel deployment and replace this line with the production URL.
+> Live dashboard: [jev-trader-bybit.vercel.app](https://jev-trader-bybit.vercel.app)
 
 ---
 

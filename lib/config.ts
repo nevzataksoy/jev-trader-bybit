@@ -25,6 +25,12 @@ export function getTradingConfig() {
     buyPctOfUsdt: numberFromEnv("BUY_PCT_OF_USDT", 0.2, 0.01, 1),
     sellPctOfHolding: numberFromEnv("SELL_PCT_OF_HOLDING", 0.25, 0.01, 1),
     minTradeUsdt: numberFromEnv("MIN_TRADE_USDT", 5, 1, 10_000),
+    minUsdtReservePct: numberFromEnv("MIN_USDT_RESERVE_PCT", 0.2, 0, 0.95),
+    maxAssetAllocationPct: numberFromEnv("MAX_ASSET_ALLOCATION_PCT", 0.5, 0.05, 1),
+    targetDailyVolatilityPct: numberFromEnv("TARGET_DAILY_VOLATILITY_PCT", 3, 0.1, 50),
+    maxDailyVolatilityPct: numberFromEnv("MAX_DAILY_VOLATILITY_PCT", 10, 0.5, 100),
+    maxSpreadPct: numberFromEnv("MAX_SPREAD_PCT", 0.25, 0.001, 5),
+    minBearReboundScore: numberFromEnv("MIN_BEAR_REBOUND_SCORE", 0.62, 0, 1),
   };
 }
 
@@ -33,7 +39,7 @@ export type AccountEnvironment = "testnet" | "demo" | "mainnet";
 export function getAccountEnvironment(): AccountEnvironment {
   const value = process.env.BYBIT_ACCOUNT_ENV?.toLowerCase();
   if (value === "demo" || value === "mainnet") return value;
-  return "testnet";
+  return "demo";
 }
 
 export function assertLiveTradingAllowed(environment: AccountEnvironment) {

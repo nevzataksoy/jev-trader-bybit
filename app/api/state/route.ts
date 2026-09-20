@@ -34,7 +34,9 @@ function mergeOrders(stored: OrderHistoryItem[], live: OrderHistoryItem[]) {
   return [...merged.values()].sort((a, b) => Number(b.createdTime) - Number(a.createdTime));
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const language = new URL(request.url).searchParams.get("lang") === "en" ? "en" : "tr";
+  const historyTimeZone = language === "tr" ? "Europe/Istanbul" : "UTC";
   let prices = emptyPrices;
   let balances = emptyBalances;
   let liveOrders: OrderHistoryItem[] = [];
@@ -70,7 +72,7 @@ export async function GET() {
       await ensureDatabase();
       await upsertOrders(liveOrders);
       [history, storedOrders, recentRuns] = await Promise.all([
-        getDailyPortfolioHistory(),
+        getDailyPortfolioHistory(90, historyTimeZone),
         getStoredOrders(),
         getRecentRuns(),
       ]);

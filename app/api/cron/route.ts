@@ -17,6 +17,7 @@ import {
   getSpotPrices,
 } from "@/lib/providers/bybit";
 import { MarketDataAggregator } from "@/lib/providers/market";
+import { createExecutionPlan } from "@/lib/risk";
 import type { BotExecutionResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -91,6 +92,7 @@ export async function GET(request: Request) {
     const trading = getTradingConfig();
     const openSymbols = new Set(activity.openOrders.map((order) => order.symbol));
     const executions: BotExecutionResult[] = [];
+    const riskBalances = balances.map((balance) => ({ ...balance }));
 
     for (const decision of jev.decisions) {
       const symbol = SYMBOLS[decision.asset];
@@ -104,23 +106,20 @@ export async function GET(request: Request) {
         });
         continue;
       }
-      if (decision.action === "hold") {
-        executions.push({
-          asset: decision.asset,
-          symbol,
-          action: "hold",
-          status: "held",
-          reason: "Jev selected hold for this cycle.",
-        });
-        continue;
-      }
-      if (decision.confidence < trading.minConfidence) {
+      const plan = createExecutionPlan(
+        decision,
+        indicators[decision.asset],
+        riskBalances,
+        totalPortfolioUsdt,
+        trading,
+      );
+      if (!plan.allowed) {
         executions.push({
           asset: decision.asset,
           symbol,
           action: decision.action,
-          status: "skipped",
-          reason: `Confidence ${decision.confidence.toFixed(3)} is below ${trading.minConfidence.toFixed(3)}.`,
+          status: decision.action === "hold" ? "held" : "skipped",
+          reason: plan.reason,
         });
         continue;
       }
@@ -140,7 +139,7 @@ export async function GET(request: Request) {
         const result = decision.action === "buy"
           ? await executeMarketBuy(
               decision.asset,
-              trading.buyPctOfUsdt,
+              plan.buyPctOfUsdt,
               trading.minTradeUsdt,
               orderLinkId,
             )
@@ -155,11 +154,26 @@ export async function GET(request: Request) {
           symbol,
           action: decision.action,
           status: "submitted",
-          reason: "Validated market order submitted to the configured Bybit account.",
+          reason: `${plan.reason} Validated market order submitted to the configured Bybit account.`,
           orderId: result.orderId,
           orderLinkId,
         });
         openSymbols.add(symbol);
+        const usdtBalance = riskBalances.find((balance) => balance.coin === "USDT");
+        const assetBalance = riskBalances.find((balance) => balance.coin === decision.asset);
+        if (decision.action === "buy" && usdtBalance && assetBalance) {
+          const spend = usdtBalance.free * plan.buyPctOfUsdt;
+          usdtBalance.free -= spend;
+          usdtBalance.total -= spend;
+          usdtBalance.usdtValue -= spend;
+          assetBalance.usdtValue += spend;
+        } else if (decision.action === "sell" && usdtBalance && assetBalance) {
+          const proceeds = assetBalance.usdtValue * trading.sellPctOfHolding;
+          assetBalance.usdtValue -= proceeds;
+          usdtBalance.free += proceeds;
+          usdtBalance.total += proceeds;
+          usdtBalance.usdtValue += proceeds;
+        }
       } catch (error) {
         executions.push({
           asset: decision.asset,

@@ -1,4 +1,4 @@
-import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import postgres from "postgres";
 import type {
   BotExecutionResult,
   BotRunSummary,
@@ -9,17 +9,34 @@ import type {
   TickerPrices,
 } from "./types";
 
-let sqlClient: NeonQueryFunction<false, false> | null = null;
+let sqlClient: ReturnType<typeof postgres> | null = null;
 let schemaPromise: Promise<void> | null = null;
 
 export function isDatabaseConfigured() {
-  return Boolean(process.env.DATABASE_URL?.trim());
+  const connectionString = process.env.DATABASE_URL?.trim();
+  if (!connectionString) return false;
+  try {
+    const url = new URL(connectionString);
+    return (url.protocol === "postgres:" || url.protocol === "postgresql:")
+      && url.hostname !== "host"
+      && url.username !== "user"
+      && url.pathname !== "/database";
+  } catch {
+    return false;
+  }
 }
 
 function getSql() {
   const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) throw new Error("DATABASE_URL is not configured.");
-  if (!sqlClient) sqlClient = neon(connectionString);
+  if (!sqlClient) {
+    sqlClient = postgres(connectionString, {
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 10,
+      prepare: false,
+    });
+  }
   return sqlClient;
 }
 
@@ -211,19 +228,30 @@ function parseJson<T>(value: unknown, fallback: T): T {
   return value as T;
 }
 
-export async function getDailyPortfolioHistory(days = 90): Promise<DailyPortfolioPoint[]> {
+export async function getDailyPortfolioHistory(
+  days = 90,
+  timeZone: "UTC" | "Europe/Istanbul" = "UTC",
+): Promise<DailyPortfolioPoint[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
-    SELECT DISTINCT ON ((captured_at AT TIME ZONE 'UTC')::date)
-      (captured_at AT TIME ZONE 'UTC')::date::text AS date,
+    WITH localized_snapshots AS (
+      SELECT
+        (captured_at AT TIME ZONE ${timeZone})::date AS local_date,
+        captured_at,
+        total_portfolio_usdt,
+        prices
+      FROM portfolio_snapshots
+      WHERE captured_at >= NOW() - (${days} * INTERVAL '1 day')
+    )
+    SELECT DISTINCT ON (local_date)
+      local_date::text AS date,
       captured_at,
       total_portfolio_usdt,
       prices
-    FROM portfolio_snapshots
-    WHERE captured_at >= NOW() - (${days} * INTERVAL '1 day')
-    ORDER BY (captured_at AT TIME ZONE 'UTC')::date DESC, captured_at DESC
+    FROM localized_snapshots
+    ORDER BY local_date DESC, captured_at DESC
   `;
   return rows
     .map((row) => ({
@@ -268,7 +296,7 @@ export async function getRecentRuns(limit = 12): Promise<BotRunSummary[]> {
   await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
-    SELECT cycle_key, started_at, completed_at, status, model, decisions, executions, error
+    SELECT cycle_key, started_at, completed_at, status, model, market_state, decisions, executions, error
     FROM bot_runs ORDER BY started_at DESC LIMIT ${limit}
   `;
   return rows.map((row) => ({
@@ -277,6 +305,7 @@ export async function getRecentRuns(limit = 12): Promise<BotRunSummary[]> {
     completedAt: row.completed_at ? new Date(String(row.completed_at)).toISOString() : null,
     status: String(row.status) as BotRunSummary["status"],
     model: row.model ? String(row.model) : null,
+    marketState: parseJson<BotRunSummary["marketState"]>(row.market_state, null),
     decisions: parseJson<JevDecision[]>(row.decisions, []),
     executions: parseJson<BotExecutionResult[]>(row.executions, []),
     error: row.error ? String(row.error) : null,

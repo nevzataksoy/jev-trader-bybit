@@ -9,7 +9,7 @@
 ### Gereksinimler
 
 - Node.js 20 veya üzeri
-- Bybit Testnet API anahtarı
+- Bybit Demo Trading API anahtarı
 - TypeSafe Jev API anahtarı
 - Neon veya Vercel Marketplace üzerinden bağlanmış PostgreSQL
 - 15 dakikalık yerleşik cron için Vercel Pro/Enterprise
@@ -24,12 +24,12 @@ npm ci
 
 `.env.example` dosyasını `.env.local` olarak kopyalayın. Gerçek anahtarları yalnızca `.env.local`, güvenli secret yöneticisi veya Vercel Environment Variables alanında tutun.
 
-### 2. Bybit Testnet
+### 2. Bybit Demo Trading
 
-Anahtarları [Bybit Testnet API Management](https://testnet.bybit.com/en/app/user/api-management) sayfasından oluşturun.
+Doğrulanmış ana Bybit hesabında [Demo Trading](https://www.bybit.com/en/derivative-activity/demo-trading) moduna geçin; ardından kullanıcı menüsündeki API sayfasından Demo hesabına ait anahtarı oluşturun. Demo hesabı ana hesaptan ayrı bir UID kullanır ve anahtar ana hesabın normal API listesinde görünmeyebilir.
 
 ```env
-BYBIT_ACCOUNT_ENV=testnet
+BYBIT_ACCOUNT_ENV=demo
 BYBIT_API_KEY=...
 BYBIT_API_SECRET=...
 ```
@@ -37,7 +37,8 @@ BYBIT_API_SECRET=...
 - Anahtara sadece ihtiyaç duyulan okuma ve spot emir izinlerini verin.
 - Mümkünse sabit Vercel çıkış IP çözümü kullanarak IP kısıtlaması uygulayın.
 - Secret yalnızca oluşturulurken gösterilir; repoya veya issue içeriğine eklemeyin.
-- Bu adresteki anahtarlar Bybit'in ayrı Demo Trading hizmetine değil, **Testnet** ortamına aittir. Proje bu nedenle `testnet` kullanır.
+- Demo anahtarları yalnızca `https://api-demo.bybit.com` alanında geçerlidir. `BYBIT_ACCOUNT_ENV=testnet` kullanmak `10003` hatasına neden olur.
+- Uygulama sadece `category=spot`, `accountType=UNIFIED` ve USDT/BTC/ETH/XAUT kapsamını kullanır; USDC ile futures/option pozisyonları karar portföyüne alınmaz.
 
 ### 3. TypeSafe Jev
 
@@ -51,6 +52,20 @@ JEV_MODEL_NAME=jev-1.13.0
 Uygulama resmî [`@typesafe-ai/sdk`](https://github.com/typesafe-ai/typesafe-sdk-js) paketini ve `systemOne({ state, questions })` çağrısını kullanır.
 
 ### 4. PostgreSQL
+
+Yerel PostgreSQL 17 için parola URL-encode edilerek aşağıdaki bağlantı kullanılabilir:
+
+```env
+DATABASE_URL=postgresql://postgres:URL_ENCODED_PASSWORD@127.0.0.1:5432/jev-trader-bybit?sslmode=disable
+```
+
+PowerShell'de bağlantıyı uygulamadan önce doğrulayın:
+
+```powershell
+& 'C:\Program Files\PostgreSQL\17\bin\psql.exe' -h 127.0.0.1 -U postgres -d jev-trader-bybit -c "select current_database(), current_user;"
+```
+
+Parolada `@`, `:`, `/`, `#` veya `%` varsa bağlantı dizesine doğrudan yazmayın; URL-encode edin. Yerel bağlantıda `sslmode=disable`, Neon/Vercel tarafından verilen bağlantıda sağlayıcının `sslmode=require` ayarı kullanılmalıdır.
 
 Vercel Dashboard → Storage/Marketplace üzerinden Neon PostgreSQL bağlantısı oluşturun veya mevcut Neon bağlantı adresinizi kullanın:
 
@@ -76,10 +91,16 @@ MIN_CONFIDENCE_THRESHOLD=0.72
 BUY_PCT_OF_USDT=0.20
 SELL_PCT_OF_HOLDING=0.25
 MIN_TRADE_USDT=5
+MIN_USDT_RESERVE_PCT=0.20
+MAX_ASSET_ALLOCATION_PCT=0.50
+TARGET_DAILY_VOLATILITY_PCT=3
+MAX_DAILY_VOLATILITY_PCT=10
+MAX_SPREAD_PCT=0.25
+MIN_BEAR_REBOUND_SCORE=0.62
 ALLOW_LIVE_TRADING=false
 ```
 
-En az birkaç başarılı gözlem çevrimi ve dashboard doğrulaması sonrasında yalnızca Testnet için:
+En az birkaç başarılı gözlem çevrimi ve dashboard doğrulaması sonrasında yalnızca Demo Trading için:
 
 ```env
 TRADING_ENABLED=true
@@ -129,7 +150,7 @@ Kontrol adresleri:
 4. İlk deploy sırasında `TRADING_ENABLED=false` kullanın.
 5. `/api/health`, dashboard ve manuel cron çağrısını doğrulayın.
 6. Vercel Cron ekranında `*/15 * * * *` görevinin aktif olduğunu kontrol edin.
-7. Testnet emirlerini doğruladıktan sonra gerekiyorsa `TRADING_ENABLED=true` yapıp yeniden deploy edin.
+7. Demo Trading spot emirlerini doğruladıktan sonra gerekiyorsa `TRADING_ENABLED=true` yapıp yeniden deploy edin.
 8. Üretim URL'sini `NEXT_PUBLIC_APP_URL` olarak ekleyin ve README'deki Live deployment satırını gerçek URL ile değiştirin.
 
 > Vercel Hobby, günde birden sık cron ifadesini deploy etmez. Pro/Enterprise kullanın veya harici zamanlayıcıyı aynı Authorization başlığıyla `/api/cron` adresine yönlendirin.
@@ -141,7 +162,7 @@ Kontrol adresleri:
 ### Requirements
 
 - Node.js 20+
-- Bybit Testnet API key
+- Bybit Demo Trading API key
 - TypeSafe Jev API key
 - Neon/PostgreSQL connected through Vercel Marketplace or directly
 - Vercel Pro/Enterprise for the built-in 15-minute cron
@@ -158,15 +179,15 @@ Copy `.env.example` to `.env.local`. Keep real credentials only in `.env.local`,
 
 ### 2. Providers
 
-Create account credentials at [Bybit Testnet API Management](https://testnet.bybit.com/en/app/user/api-management):
+Switch the verified mainnet account to [Demo Trading](https://www.bybit.com/en/derivative-activity/demo-trading), then create the key from the API page reached inside Demo Trading. The demo account has a separate UID, so its key may not appear in the normal main-account key list.
 
 ```env
-BYBIT_ACCOUNT_ENV=testnet
+BYBIT_ACCOUNT_ENV=demo
 BYBIT_API_KEY=...
 BYBIT_API_SECRET=...
 ```
 
-Keys created on that host are Testnet keys, not keys for Bybit's separate Demo Trading service. Grant only the required read and spot-order permissions.
+Demo keys must use `https://api-demo.bybit.com`; selecting `testnet` produces Bybit error `10003`. Grant only the required read and spot-order permissions. The application only uses Unified spot data for USDT/BTC/ETH/XAUT and excludes USDC plus futures/options positions from its decision portfolio.
 
 Configure the official TypeSafe SDK:
 
@@ -176,6 +197,14 @@ JEV_MODEL_NAME=jev-1.13.0
 ```
 
 ### 3. Database
+
+For local PostgreSQL 17, URL-encode the password and use:
+
+```env
+DATABASE_URL=postgresql://postgres:URL_ENCODED_PASSWORD@127.0.0.1:5432/jev-trader-bybit?sslmode=disable
+```
+
+Use the pooled connection URL supplied by Neon for Vercel, normally with `sslmode=require`. The `postgres` driver supports both the local server and Neon/Vercel.
 
 Provision a Neon/PostgreSQL integration from Vercel Marketplace and set:
 
@@ -199,11 +228,17 @@ MIN_CONFIDENCE_THRESHOLD=0.72
 BUY_PCT_OF_USDT=0.20
 SELL_PCT_OF_HOLDING=0.25
 MIN_TRADE_USDT=5
+MIN_USDT_RESERVE_PCT=0.20
+MAX_ASSET_ALLOCATION_PCT=0.50
+TARGET_DAILY_VOLATILITY_PCT=3
+MAX_DAILY_VOLATILITY_PCT=10
+MAX_SPREAD_PCT=0.25
+MIN_BEAR_REBOUND_SCORE=0.62
 ALLOW_LIVE_TRADING=false
 CRON_SECRET=use_at_least_32_random_characters
 ```
 
-Run several successful cycles, inspect stored snapshots and decisions, and confirm the dashboard before setting `TRADING_ENABLED=true` for Testnet.
+Run several successful cycles, inspect stored snapshots and decisions, and confirm the dashboard before setting `TRADING_ENABLED=true` for Demo Trading.
 
 ### 5. Quality and local run
 
@@ -231,7 +266,7 @@ curl -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/cron
 4. Keep `TRADING_ENABLED=false` for the first deployment.
 5. Verify `/api/health`, the dashboard and a manual authenticated cron request.
 6. Confirm the `*/15 * * * *` job in Vercel's Cron Jobs page.
-7. Enable Testnet execution only after the observation run is healthy.
+7. Enable Demo Trading spot execution only after the observation run is healthy.
 8. Set `NEXT_PUBLIC_APP_URL` and replace the README live-deployment placeholder with the real Vercel URL.
 
 Vercel Hobby only permits daily cron execution. Use Pro/Enterprise for the native 15-minute schedule or call `/api/cron` from an external scheduler with the same Bearer authorization header.

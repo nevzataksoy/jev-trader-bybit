@@ -51,6 +51,11 @@ export function getMainnetMarketClient() {
 
 function assertBybitResponse(response: { retCode: number; retMsg: string }, operation: string) {
   if (response.retCode !== 0) {
+    if (response.retCode === 10003) {
+      throw new Error(
+        `${operation} failed [10003]: API key and Bybit domain do not match. Use BYBIT_ACCOUNT_ENV=demo for api-demo.bybit.com keys or testnet for api-testnet.bybit.com keys.`,
+      );
+    }
     throw new Error(`${operation} failed [${response.retCode}]: ${response.retMsg}`);
   }
 }
@@ -82,7 +87,7 @@ export async function getSpotBalances(prices?: TickerPrices): Promise<SpotBalanc
     accountType: "UNIFIED",
     coin: TARGET_ASSETS.join(","),
   });
-  assertBybitResponse(response, "Test account wallet request");
+  assertBybitResponse(response, "Configured spot account wallet request");
 
   const coins = response.result.list[0]?.coin ?? [];
   return TARGET_ASSETS.map((coin) => {

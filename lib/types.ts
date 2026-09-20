@@ -5,6 +5,7 @@ export type Language = "tr" | "en";
 export type AssetId = (typeof ASSET_IDS)[number];
 export type TradeAsset = (typeof TRADE_ASSETS)[number];
 export type TradeAction = "buy" | "sell" | "hold";
+export type MarketRegime = "bull_trend" | "bear_trend" | "range" | "transition";
 
 export interface SpotBalance {
   coin: AssetId;
@@ -23,22 +24,44 @@ export interface MarketIndicatorState {
   last_price: number;
   change_24h_pct: number;
   turnover_24h_usdt: number;
+  return_15m_pct: number;
+  return_1h_pct: number;
+  return_4h_pct: number;
+  return_24h_pct: number;
+  return_7d_pct: number;
+  return_30d_pct: number;
+  relative_strength_vs_btc_24h_pct: number;
   ema_9: number;
   ema_21: number;
   ema_50: number;
   ema_200: number;
+  ema_50_slope_3h_pct: number;
   rsi_14: number;
   atr_14: number;
+  atr_14_pct: number;
   bb_upper: number;
   bb_lower: number;
   bb_width_pct: number;
+  bb_position: number;
   macd_hist: number;
+  realized_volatility_24h_pct: number;
+  volume_ratio_20: number;
+  price_zscore_20: number;
+  adx_14: number;
+  plus_di_14: number;
+  minus_di_14: number;
+  trend_score: number;
+  regime: MarketRegime;
+  countertrend_rebound_score: number;
   bid_ask_spread_pct: number;
-  orderbook_imbalance_ratio: number;
+  orderbook_imbalance: number;
+  bid_depth_50_usdt: number;
+  ask_depth_50_usdt: number;
   open_interest_usdt_estimate: number | null;
+  open_interest_change_1h_pct: number | null;
+  open_interest_change_4h_pct: number | null;
   funding_rate_latest_pct: number | null;
-  fear_and_greed: number | null;
-  data_quality: "complete" | "partial";
+  data_quality: "complete" | "spot_only";
 }
 
 export interface JevDecision {
@@ -107,6 +130,7 @@ export interface BotRunSummary {
   completedAt: string | null;
   status: "running" | "completed" | "failed" | "skipped";
   model: string | null;
+  marketState: Record<TradeAsset, MarketIndicatorState> | null;
   decisions: JevDecision[];
   executions: BotExecutionResult[];
   error: string | null;

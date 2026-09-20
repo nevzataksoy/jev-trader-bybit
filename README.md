@@ -10,21 +10,29 @@
 
 ### Proje
 
-Jev Pulse; **USDT, BTC, ETH ve XAUT** arasında çalışan, canlı piyasa verilerini TypeSafe Jev ile değerlendiren ve doğrulanan kararları izole bir Bybit test hesabında uygulayan açık kaynak bir referans uygulamadır.
+Jev Pulse; **USDT, BTC, ETH ve XAUT** arasında çalışan, canlı piyasa verilerini TypeSafe Jev ile değerlendiren ve doğrulanan kararları izole bir Bybit Demo Trading spot hesabında uygulayan açık kaynak bir referans uygulamadır.
 
 Uygulama iki veri düzlemini bilinçli olarak ayırır:
 
 - **Canlı piyasa zekâsı:** Fiyat, 15 dakikalık mum, order book, 24 saatlik değişim ve mevcut türev sinyalleri Bybit ana ağından alınır.
-- **İzole yürütme:** Bakiye, açık emir, emir geçmişi, gerçekleşmeler ve yeni emirler `testnet.bybit.com` hesabına aittir.
+- **İzole yürütme:** Bakiye, açık emir, emir geçmişi, gerçekleşmeler ve yeni spot emirler ana hesaptan ayrı UID'ye sahip Demo Trading hesabına aittir; özel istekler `api-demo.bybit.com` üzerinden gider.
 
 Bu ayrım, Jev'in güncel piyasa koşullarını değerlendirmesini sağlarken geliştirme aşamasındaki emirleri gerçek bakiyeden uzak tutar.
+
+### Sayısal karar modeli
+
+Bot haber, sosyal medya yorumu veya serbest metin piyasa tahmini kullanmaz. Her varlık için 15 dakika ile 30 gün arasındaki getiriler, EMA yapısı ve eğimi, RSI, MACD, ATR, Bollinger konumu/z-skoru, ADX/+DI/−DI, 24 saatlik gerçekleşen oynaklık, göreli hacim, spread, 50 kademe emir defteri derinliği/dengesizliği, fonlama ve açık pozisyon değişimi hesaplanır.
+
+Uygulama bu ölçümlerden deterministik olarak `bull_trend`, `bear_trend`, `range` veya `transition` rejimi üretir. Jev aynı yapılandırılmış durumu üç bağımsız, tipli `buy | sell | hold` sorusuyla değerlendirir. Jev hesap makinesi veya sohbet belleği olarak kullanılmaz; hesaplamalar, kalıcı geçmiş, pozisyon boyutlandırma ve emir izinleri kodun sorumluluğundadır.
+
+Düşüş rejiminde yeni alım ancak kısa dönem momentum, aşırı satış, hacim ve emir defteri talebini birleştiren rebound skoru güvenlik eşiğini aşarsa yürütülebilir. Satışlar sermayeyi USDT'ye taşıyabilir. Yatay rejimde ise z-skoru ve bant konumu ortalamaya dönüş fırsatlarının değerlendirilmesini sağlar. Tüm alımlar USDT rezervi, tek-varlık yoğunlaşması, spread ve volatilite kapılarından geçer; boyut gerçekleşen oynaklığa göre küçültülür.
 
 ### 15 dakikalık karar döngüsü
 
 ```text
 Vercel Cron
    │
-   ├─ Bybit test hesabı ──> bakiyeler + açık emirler + emir/gerçekleşme geçmişi
+   ├─ Bybit Demo spot ────> bakiyeler + açık emirler + emir/gerçekleşme geçmişi
    ├─ Bybit ana ağı ──────> fiyat + mumlar + order book + piyasa göstergeleri
    │
    ├─ PostgreSQL ─────────> çevrim kilidi + snapshot + kalıcı işlem günlüğü
@@ -33,14 +41,14 @@ Vercel Cron
                                   │
                          güven ve risk kapıları
                                   │
-                         Bybit test hesap emri
+                         Bybit Demo spot emri
 ```
 
 Jev yalnızca tipli bir karar üretir. Emir miktarı, izin verilen varlıklar, minimum tutar, lot hassasiyeti, açık emir kontrolü, güven eşiği ve tekrar çalıştırma güvenliği uygulama kodunun sorumluluğundadır.
 
 ### Güvenlik ve operasyon özellikleri
 
-- Varsayılan hesap ortamı `testnet`; ana ağ işlemleri ayrıca kilitlidir.
+- Varsayılan hesap ortamı `demo`; gerçek ana ağ işlemleri ayrıca kilitlidir.
 - `TRADING_ENABLED=false` iken Jev kararları kaydedilir ancak emir gönderilmez.
 - Aynı 15 dakikalık çevrim PostgreSQL benzersiz anahtarı sayesinde ikinci kez emir üretemez.
 - Eksik kritik veri veya API hatasında sistem emir göndermeden kapanır.
@@ -68,7 +76,7 @@ TR/EN dashboard aşağıdakileri gösterir:
 - Next.js 16 / React 19 / TypeScript
 - Official `@typesafe-ai/sdk` (`systemOne`, typed choice questions)
 - `bybit-api` V5 SDK
-- Neon-compatible PostgreSQL via `@neondatabase/serverless`
+- Local PostgreSQL and Neon-compatible storage via `postgres`
 - Vercel Cron
 - Vitest, ESLint and TypeScript quality gates
 
@@ -78,7 +86,7 @@ Vercel Hobby planı cron görevlerini günde yalnızca bir kez çalıştırır. 
 
 ### Sorumluluk reddi
 
-Bu yazılım Jev entegrasyonunu gösteren deneysel bir referans uygulamadır ve yatırım tavsiyesi değildir. Kripto varlık işlemleri önemli kayıp riski taşır. Testnet sonuçları gerçek piyasa performansını, likiditeyi veya kaymayı temsil etmeyebilir. Gerçek hesap kullanımı öncesinde bağımsız güvenlik, strateji, mevzuat ve risk değerlendirmesi yapılmalıdır. Proje sahipleri ve katkıda bulunanlar işlem kayıplarından sorumlu değildir.
+Bu yazılım Jev entegrasyonunu gösteren deneysel bir referans uygulamadır ve yatırım tavsiyesi değildir. Kripto varlık işlemleri önemli kayıp riski taşır. Demo Trading sonuçları gerçek piyasa performansını, likiditeyi veya kaymayı temsil etmeyebilir. Gerçek hesap kullanımı öncesinde bağımsız güvenlik, strateji, mevzuat ve risk değerlendirmesi yapılmalıdır. Proje sahipleri ve katkıda bulunanlar işlem kayıplarından sorumlu değildir.
 
 ---
 
@@ -86,14 +94,22 @@ Bu yazılım Jev entegrasyonunu gösteren deneysel bir referans uygulamadır ve 
 
 ### Project
 
-Jev Pulse is an open-source reference application that rotates capital across **USDT, BTC, ETH and XAUT**, evaluates live market state with TypeSafe Jev, and applies validated decisions inside an isolated Bybit test account.
+Jev Pulse is an open-source reference application that rotates capital across **USDT, BTC, ETH and XAUT**, evaluates live market state with TypeSafe Jev, and applies validated decisions inside an isolated Bybit Demo Trading spot account.
 
 The application deliberately separates two data planes:
 
 - **Live market intelligence:** prices, 15-minute candles, order book, 24-hour movement and available derivative signals come from Bybit mainnet.
-- **Isolated execution:** balances, open orders, order history, executions and new orders belong to the `testnet.bybit.com` account.
+- **Isolated execution:** balances, open orders, history, executions and new spot orders belong to a Demo Trading account with its own UID; private calls use `api-demo.bybit.com`.
 
 This lets Jev evaluate current market conditions while keeping development orders away from real funds.
+
+### Quantitative decision model
+
+The bot does not consume news, social commentary or free-form market forecasts. It computes 15-minute through 30-day returns, EMA structure and slope, RSI, MACD, ATR, Bollinger position/z-score, ADX/+DI/−DI, 24-hour realized volatility, relative volume, spread, 50-level order-book depth/imbalance, funding and open-interest changes.
+
+Application code deterministically labels each asset as `bull_trend`, `bear_trend`, `range` or `transition`. Jev judges that structured state through three independent typed `buy | sell | hold` questions. It is not used as a calculator or conversational memory: calculations, persistent context, sizing and execution permissions remain in code.
+
+Bear-regime buys require a separate rebound score combining short-horizon momentum, oversold statistics, volume and order-book demand. Sells may rotate capital into USDT. Range decisions can use statistical mean-reversion evidence. Every buy is additionally constrained by a USDT reserve, single-asset allocation cap, spread ceiling and volatility-scaled sizing.
 
 ### 15-minute decision cycle
 
@@ -109,7 +125,7 @@ Every successful cycle stores:
 
 ### Safety and operations
 
-- `testnet` is the default account environment; mainnet execution has an additional lock.
+- `demo` is the default account environment; real-mainnet execution has an additional lock.
 - `TRADING_ENABLED=false` records decisions without submitting orders.
 - A PostgreSQL cycle key prevents duplicate execution within the same 15-minute window.
 - Missing critical data and provider errors fail closed.
@@ -127,6 +143,6 @@ Vercel Hobby cron jobs can run only once per day. The `*/15 * * * *` schedule re
 
 ### Disclaimer
 
-This is experimental reference software demonstrating a Jev integration, not investment advice. Crypto trading carries a substantial risk of loss. Testnet results may not represent real-market performance, liquidity or slippage. Complete independent security, strategy, legal and risk reviews before any real-account use. Project owners and contributors are not liable for trading losses.
+This is experimental reference software demonstrating a Jev integration, not investment advice. Crypto trading carries a substantial risk of loss. Demo Trading results may not represent real-market performance, liquidity or slippage. Complete independent security, strategy, legal and risk reviews before any real-account use. Project owners and contributors are not liable for trading losses.
 
 See [INSTALL.md](./INSTALL.md) for local and Vercel setup.

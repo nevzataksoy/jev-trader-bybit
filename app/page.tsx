@@ -5,6 +5,7 @@ import type {
   DashboardState,
   DailyPortfolioPoint,
   Language,
+  MarketRegime,
   OrderHistoryItem,
   TradeAction,
 } from "@/lib/types";
@@ -14,14 +15,14 @@ const copy = {
     eyebrow: "JEV SYSTEM ONE • OTONOM SPOT LAB",
     title: "Piyasa sinyallerini karara, kararı kontrollü aksiyona dönüştürür.",
     intro:
-      "Canlı ana ağ verileri Jev tarafından değerlendirilir; doğrulanan kararlar yalnızca izole Bybit test hesabında uygulanır.",
+      "Canlı ana ağ verileri Jev tarafından değerlendirilir; doğrulanan kararlar yalnızca izole Bybit Demo Trading spot hesabında uygulanır.",
     refresh: "Verileri yenile",
     refreshing: "Yenileniyor",
     liveMarket: "Canlı piyasa verisi",
-    testExecution: "Test hesap yürütme",
+    testExecution: "Demo spot yürütme",
     tradingOn: "Emir yürütme açık",
     tradingOff: "Gözlem modu",
-    portfolio: "Toplam test portföyü",
+    portfolio: "Toplam demo portföyü",
     dailyChange: "Günlük değişim",
     openOrders: "Açık emir",
     lastCycle: "Son bot çevrimi",
@@ -37,18 +38,21 @@ const copy = {
     intelligence: "Jev karar akışı",
     intelligenceSub: "Son çevrimde üretilen tipli kararlar ve uygulama kapısı",
     confidence: "Güven",
+    regime: "Piyasa rejimi",
+    momentum: "15dk / 24sa getiri",
+    volatility: "24sa gerçekleşen oynaklık",
     model: "Model",
     noDecision: "Henüz Jev kararı kaydedilmedi.",
     workflow: "Bot nasıl çalışıyor?",
     workflowSub: "Her 15 dakikada tekrarlanan, izlenebilir ve fail-closed karar hattı",
     steps: [
-      ["01", "Hesabı oku", "USDT, BTC, ETH ve XAUT bakiyeleri ile açık emirler test hesabından alınır."],
-      ["02", "Piyasayı ölç", "Ana ağ fiyatı, 15dk mumlar, order book ve mevcut türev sinyalleri toplanır."],
+      ["01", "Hesabı oku", "USDT, BTC, ETH ve XAUT bakiyeleri ile spot açık emirler Demo Trading hesabından alınır."],
+      ["02", "Piyasayı ölç", "Çoklu zaman dilimi getirileri, trend rejimi, oynaklık, hacim, emir defteri ve türev konumlanması hesaplanır."],
       ["03", "Jev ile değerlendir", "Jev her varlık için yalnızca al, sat veya bekle seçeneklerinden birini döndürür."],
       ["04", "Güvenle uygula", "Eşik, bakiye, açık emir, lot ve minimum tutar kontrolleri geçilirse emir iletilir."],
     ],
     orders: "Spot emir geçmişi",
-    ordersSub: "Test hesap emirleri; kalıcı kayıtlar Bybit’in kısa saklama süresinden bağımsız tutulur.",
+    ordersSub: "Demo Trading spot emirleri; kalıcı kayıtlar Bybit’in yedi günlük saklama süresinden bağımsız tutulur.",
     allSymbols: "Tüm semboller",
     allSides: "Tüm yönler",
     allStatuses: "Tüm durumlar",
@@ -74,7 +78,7 @@ const copy = {
     updated: "Güncellendi",
     disclosureTitle: "Deneysel yazılım ve finansal risk bildirimi",
     disclosure:
-      "Bu proje Jev karar modelini gösteren bir yazılım örneğidir; yatırım tavsiyesi değildir. Kripto varlık işlemleri ciddi kayıp riski taşır. Test hesap sonuçları gerçek piyasa performansını garanti etmez. Gerçek hesapta kullanmadan önce bağımsız güvenlik, strateji, mevzuat ve risk incelemesi yapın. Geliştiriciler işlem kayıplarından sorumlu değildir.",
+      "Bu proje Jev karar modelini gösteren bir yazılım örneğidir; yatırım tavsiyesi değildir. Kripto varlık işlemleri ciddi kayıp riski taşır. Demo Trading sonuçları gerçek piyasa performansını garanti etmez. Gerçek hesapta kullanmadan önce bağımsız güvenlik, strateji, mevzuat ve risk incelemesi yapın. Geliştiriciler işlem kayıplarından sorumlu değildir.",
     footer: "Live intelligence • Typed decisions • Controlled execution",
     loadError: "Dashboard verileri alınamadı.",
   },
@@ -82,14 +86,14 @@ const copy = {
     eyebrow: "JEV SYSTEM ONE • AUTONOMOUS SPOT LAB",
     title: "Turn market signals into decisions, and decisions into controlled action.",
     intro:
-      "Live mainnet data is evaluated by Jev; validated decisions execute only inside an isolated Bybit test account.",
+      "Live mainnet data is evaluated by Jev; validated decisions execute only inside an isolated Bybit Demo Trading spot account.",
     refresh: "Refresh data",
     refreshing: "Refreshing",
     liveMarket: "Live market data",
-    testExecution: "Test-account execution",
+    testExecution: "Demo spot execution",
     tradingOn: "Order execution enabled",
     tradingOff: "Observation mode",
-    portfolio: "Total test portfolio",
+    portfolio: "Total demo portfolio",
     dailyChange: "Daily change",
     openOrders: "Open orders",
     lastCycle: "Latest bot cycle",
@@ -105,18 +109,21 @@ const copy = {
     intelligence: "Jev decision stream",
     intelligenceSub: "Typed decisions and execution gates from the latest cycle",
     confidence: "Confidence",
+    regime: "Market regime",
+    momentum: "15m / 24h return",
+    volatility: "24h realized volatility",
     model: "Model",
     noDecision: "No Jev decision has been recorded yet.",
     workflow: "How does the bot work?",
     workflowSub: "An observable, fail-closed decision pipeline repeated every 15 minutes",
     steps: [
-      ["01", "Read the account", "USDT, BTC, ETH and XAUT balances plus open orders come from the test account."],
-      ["02", "Measure the market", "Mainnet prices, 15m candles, order book and available derivative signals are collected."],
+      ["01", "Read the account", "USDT, BTC, ETH and XAUT balances plus spot open orders come from the Demo Trading account."],
+      ["02", "Measure the market", "Multi-timeframe returns, trend regime, volatility, volume, order-book and derivatives positioning are computed."],
       ["03", "Evaluate with Jev", "Jev returns exactly one typed choice per asset: buy, sell or hold."],
       ["04", "Execute safely", "An order is sent only after confidence, balance, open-order, lot and notional checks pass."],
     ],
     orders: "Spot order history",
-    ordersSub: "Test-account orders persisted independently of Bybit’s short retention window.",
+    ordersSub: "Demo Trading spot orders persisted independently of Bybit’s seven-day retention window.",
     allSymbols: "All symbols",
     allSides: "All sides",
     allStatuses: "All statuses",
@@ -142,7 +149,7 @@ const copy = {
     updated: "Updated",
     disclosureTitle: "Experimental software and financial risk disclosure",
     disclosure:
-      "This project is a software demonstration of the Jev decision model, not investment advice. Crypto trading involves substantial risk of loss. Test-account results do not guarantee real-market performance. Perform independent security, strategy, legal and risk reviews before any real-account use. The developers are not liable for trading losses.",
+      "This project is a software demonstration of the Jev decision model, not investment advice. Crypto trading involves substantial risk of loss. Demo Trading results do not guarantee real-market performance. Perform independent security, strategy, legal and risk reviews before any real-account use. The developers are not liable for trading losses.",
     footer: "Live intelligence • Typed decisions • Controlled execution",
     loadError: "Dashboard data could not be loaded.",
   },
@@ -150,7 +157,7 @@ const copy = {
 
 const initialState: DashboardState = {
   generatedAt: new Date(0).toISOString(),
-  accountEnvironment: "testnet",
+  accountEnvironment: "demo",
   marketSource: "bybit-mainnet",
   tradingEnabled: false,
   balances: [],
@@ -172,8 +179,22 @@ function formatMoney(value: number, lang: Language, decimals = 2) {
 function formatDate(value: string | null, lang: Language) {
   if (!value) return "—";
   return new Intl.DateTimeFormat(lang === "tr" ? "tr-TR" : "en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    timeZone: lang === "tr" ? "Europe/Istanbul" : "UTC",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(value));
+}
+
+function formatDay(value: string, lang: Language) {
+  return new Intl.DateTimeFormat(lang === "tr" ? "tr-TR" : "en-US", {
+    timeZone: lang === "tr" ? "Europe/Istanbul" : "UTC",
+    month: "short",
+    day: "2-digit",
   }).format(new Date(value));
 }
 
@@ -192,6 +213,14 @@ function statusLabel(status: DashboardState["connection"]["bybit"], lang: Langua
 
 function actionLabel(action: TradeAction, lang: Language) {
   return copy[lang][action];
+}
+
+function regimeLabel(regime: MarketRegime, lang: Language) {
+  const labels = {
+    tr: { bull_trend: "Yükseliş trendi", bear_trend: "Düşüş trendi", range: "Yatay piyasa", transition: "Geçiş" },
+    en: { bull_trend: "Bull trend", bear_trend: "Bear trend", range: "Range", transition: "Transition" },
+  } as const;
+  return labels[lang][regime];
 }
 
 function CapitalChart({ history, lang }: { history: DailyPortfolioPoint[]; lang: Language }) {
@@ -232,14 +261,14 @@ function CapitalChart({ history, lang }: { history: DailyPortfolioPoint[]; lang:
         <path d={path} fill="none" stroke="url(#chartLine)" strokeWidth="4" strokeLinecap="round" />
         {points.map(({ x, y, point }) => (
           <circle key={point.capturedAt} cx={x} cy={y} r="5" className="chart-dot">
-            <title>{`${point.date} • ${formatMoney(point.totalPortfolioUsdt, lang)} USDT`}</title>
+            <title>{`${formatDay(point.capturedAt, lang)} • ${formatMoney(point.totalPortfolioUsdt, lang)} USDT`}</title>
           </circle>
         ))}
       </svg>
       <div className="chart-axis">
-        <span>{history[0].date}</span>
-        {history.length > 2 && <span>{history[Math.floor(history.length / 2)].date}</span>}
-        <span>{history.at(-1)!.date}</span>
+        <span>{formatDay(history[0].capturedAt, lang)}</span>
+        {history.length > 2 && <span>{formatDay(history[Math.floor(history.length / 2)].capturedAt, lang)}</span>}
+        <span>{formatDay(history.at(-1)!.capturedAt, lang)}</span>
       </div>
     </div>
   );
@@ -263,7 +292,7 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/state", { cache: "no-store" });
+      const response = await fetch(`/api/state?lang=${lang}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
       setData((await response.json()) as DashboardState);
     } catch (loadError) {
@@ -438,6 +467,7 @@ export default function Dashboard() {
           <div className="decision-grid">
             {latestRun.decisions.map((decision) => {
               const execution = latestRun.executions.find((item) => item.asset === decision.asset);
+              const market = latestRun.marketState?.[decision.asset];
               return (
                 <article className={`decision-card decision-card--${decision.action}`} key={decision.asset}>
                   <div className="decision-head"><strong>{decision.asset}/USDT</strong><span>{actionLabel(decision.action, lang)}</span></div>
@@ -445,6 +475,13 @@ export default function Dashboard() {
                   <div className="probabilities">
                     {(["buy", "hold", "sell"] as TradeAction[]).map((action) => <span key={action}>{actionLabel(action, lang)} <b>{Math.round(decision.probabilities[action] * 100)}%</b></span>)}
                   </div>
+                  {market && (
+                    <div className="market-state-row">
+                      <span><small>{t.regime}</small><b>{regimeLabel(market.regime, lang)}</b></span>
+                      <span><small>{t.momentum}</small><b>{market.return_15m_pct.toFixed(2)}% / {market.return_24h_pct.toFixed(2)}%</b></span>
+                      <span><small>{t.volatility}</small><b>{market.realized_volatility_24h_pct.toFixed(2)}%</b></span>
+                    </div>
+                  )}
                   <p>{execution?.reason ?? "—"}</p>
                 </article>
               );

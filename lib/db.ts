@@ -4,10 +4,15 @@ import type {
   BotExecutionResult,
   BotRunSummary,
   DailyPortfolioPoint,
+  DecisionContextSnapshot,
   JevDecision,
+  MacroState,
+  MarketIndicatorState,
   OrderHistoryItem,
   PortfolioSnapshot,
+  PortfolioRiskContext,
   TickerPrices,
+  TradeAsset,
 } from "./types";
 
 let sqlClient: ReturnType<typeof postgres> | null = null;
@@ -51,6 +56,7 @@ async function createSchema() {
       status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
       model TEXT,
       market_state JSONB,
+      decision_context JSONB,
       decisions JSONB NOT NULL DEFAULT '[]'::jsonb,
       executions JSONB NOT NULL DEFAULT '[]'::jsonb,
       error TEXT
@@ -90,9 +96,55 @@ async function createSchema() {
       synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS macro_snapshots (
+      source_observed_at TIMESTAMPTZ PRIMARY KEY,
+      collected_at TIMESTAMPTZ NOT NULL,
+      state JSONB NOT NULL
+    )
+  `;
   await sql`CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS macro_snapshots_collected_idx ON macro_snapshots(collected_at DESC)`;
+  await sql`ALTER TABLE bot_runs ADD COLUMN IF NOT EXISTS decision_context JSONB`;
+}
+
+export async function saveMacroSnapshot(state: MacroState) {
+  if (!state.source_observed_at || state.data_quality === "unavailable") return;
+  await ensureDatabase();
+  const sql = getSql();
+  await sql`
+    INSERT INTO macro_snapshots (source_observed_at, collected_at, state)
+    VALUES (${state.source_observed_at}::timestamptz, ${state.collected_at}::timestamptz, ${JSON.stringify(state)}::jsonb)
+    ON CONFLICT (source_observed_at) DO UPDATE SET
+      collected_at = EXCLUDED.collected_at,
+      state = EXCLUDED.state
+  `;
+}
+
+export async function getLatestMacroSnapshot(): Promise<MacroState | null> {
+  if (!isDatabaseConfigured()) return null;
+  await ensureDatabase();
+  const sql = getSql();
+  const rows = await sql`SELECT state FROM macro_snapshots ORDER BY collected_at DESC LIMIT 1`;
+  return rows.length ? parseJson<MacroState | null>(rows[0].state, null) : null;
+}
+
+export async function getLatestMarketState(): Promise<Record<TradeAsset, MarketIndicatorState> | null> {
+  if (!isDatabaseConfigured()) return null;
+  await ensureDatabase();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT market_state
+    FROM bot_runs
+    WHERE status = 'completed' AND market_state IS NOT NULL
+    ORDER BY completed_at DESC
+    LIMIT 1
+  `;
+  return rows.length
+    ? parseJson<Record<TradeAsset, MarketIndicatorState> | null>(rows[0].market_state, null)
+    : null;
 }
 
 export async function ensureDatabase() {
@@ -142,6 +194,7 @@ export async function completeBotRun(
   cycleKey: string,
   model: string,
   marketState: unknown,
+  decisionContext: DecisionContextSnapshot,
   decisions: JevDecision[],
   executions: BotExecutionResult[],
 ) {
@@ -150,6 +203,7 @@ export async function completeBotRun(
     UPDATE bot_runs
     SET completed_at = NOW(), status = 'completed', model = ${model},
         market_state = ${JSON.stringify(marketState)}::jsonb,
+        decision_context = ${JSON.stringify(decisionContext)}::jsonb,
         decisions = ${JSON.stringify(decisions)}::jsonb,
         executions = ${JSON.stringify(executions)}::jsonb,
         error = NULL
@@ -292,12 +346,53 @@ export async function getStoredOrders(limit = 200): Promise<OrderHistoryItem[]> 
   }));
 }
 
+export async function getPortfolioRiskContext(currentEquityUsdt: number): Promise<PortfolioRiskContext> {
+  if (!isDatabaseConfigured()) {
+    return {
+      window_hours: 24,
+      starting_equity_usdt: null,
+      peak_equity_usdt: null,
+      current_drawdown_pct: 0,
+      completed_orders_24h: 0,
+    };
+  }
+  await ensureDatabase();
+  const sql = getSql();
+  const [snapshots, orderCounts] = await Promise.all([
+    sql`
+      SELECT total_portfolio_usdt
+      FROM portfolio_snapshots
+      WHERE captured_at >= NOW() - INTERVAL '24 hours'
+      ORDER BY captured_at ASC
+    `,
+    sql`
+      SELECT COUNT(*)::int AS count
+      FROM spot_orders
+      WHERE cum_exec_qty > 0
+        AND COALESCE(executed_at, updated_at) >= NOW() - INTERVAL '24 hours'
+    `,
+  ]);
+  const equities = snapshots.map((row) => Number(row.total_portfolio_usdt)).filter(Number.isFinite);
+  const startingEquity = equities.at(0) ?? null;
+  const peakEquity = equities.length ? Math.max(...equities, currentEquityUsdt) : null;
+  const drawdown = peakEquity && peakEquity > 0
+    ? Math.max(0, ((peakEquity - currentEquityUsdt) / peakEquity) * 100)
+    : 0;
+  return {
+    window_hours: 24,
+    starting_equity_usdt: startingEquity,
+    peak_equity_usdt: peakEquity,
+    current_drawdown_pct: drawdown,
+    completed_orders_24h: Number(orderCounts[0]?.count ?? 0),
+  };
+}
+
 export async function getRecentRuns(limit = 12): Promise<BotRunSummary[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
-    SELECT cycle_key, started_at, completed_at, status, model, market_state, decisions, executions, error
+    SELECT cycle_key, started_at, completed_at, status, model, market_state, decision_context, decisions, executions, error
     FROM bot_runs ORDER BY started_at DESC LIMIT ${limit}
   `;
   return rows.map((row) => ({
@@ -307,6 +402,7 @@ export async function getRecentRuns(limit = 12): Promise<BotRunSummary[]> {
     status: String(row.status) as BotRunSummary["status"],
     model: row.model ? String(row.model) : null,
     marketState: parseJson<BotRunSummary["marketState"]>(row.market_state, null),
+    decisionContext: parseJson<BotRunSummary["decisionContext"]>(row.decision_context, null),
     decisions: parseJson<JevDecision[]>(row.decisions, []),
     executions: parseJson<BotExecutionResult[]>(row.executions, []),
     error: row.error ? String(row.error) : null,

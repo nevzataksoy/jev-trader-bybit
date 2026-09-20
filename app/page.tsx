@@ -5,6 +5,7 @@ import type {
   DashboardState,
   DailyPortfolioPoint,
   Language,
+  MamisPhase,
   MarketRegime,
   OrderHistoryItem,
   TradeAction,
@@ -39,17 +40,27 @@ const copy = {
     intelligenceSub: "Son çevrimde üretilen tipli kararlar ve uygulama kapısı",
     confidence: "Güven",
     regime: "Piyasa rejimi",
+    sentimentCycle: "Mamis evresi",
+    targetAllocation: "Mevcut / hedef",
+    direction: "Yön yargısı",
+    setupQuality: "Setup kalitesi",
+    macroContext: "Makro rejim",
     momentum: "15dk / 24sa getiri",
     volatility: "24sa gerçekleşen oynaklık",
+    positionState: "Pozisyon",
+    averageEntry: "Ort. maliyet",
+    flat: "USDT'de",
+    held: "Portföyde",
+    unavailable: "Yetersiz geçmiş",
     model: "Model",
     noDecision: "Henüz Jev kararı kaydedilmedi.",
     workflow: "Bot nasıl çalışıyor?",
     workflowSub: "Her 15 dakikada tekrarlanan, izlenebilir ve fail-closed karar hattı",
     steps: [
       ["01", "Hesabı oku", "USDT, BTC, ETH ve XAUT bakiyeleri ile spot açık emirler Demo Trading hesabından alınır."],
-      ["02", "Piyasayı ölç", "Çoklu zaman dilimi getirileri, trend rejimi, oynaklık, hacim, emir defteri ve türev konumlanması hesaplanır."],
-      ["03", "Jev ile değerlendir", "Jev her varlık için yalnızca al, sat veya bekle seçeneklerinden birini döndürür."],
-      ["04", "Güvenle uygula", "Eşik, bakiye, açık emir, lot ve minimum tutar kontrolleri geçilirse emir iletilir."],
+      ["02", "Piyasayı ölç", "Yalnız kapanmış mumlardan trend, oynaklık ve hacim; kaynak zamanlı emir defteri ile türev konumlanması hesaplanır."],
+      ["03", "Jev ile değerlendir", "Jev semantik piyasa durumundan yön, devam, setup, likidite, düzensizlik ve risk azaltma yargıları üretir."],
+      ["04", "Hedefi uygula", "Kod yargıları hedef portföy ağırlığına çevirir; maliyet, cooldown, drawdown, açık emir, lot ve kayma kontrolleri geçilirse emir iletilir."],
     ],
     orders: "Spot emir geçmişi",
     ordersSub: "Demo Trading spot emirleri; kalıcı kayıtlar Bybit’in yedi günlük saklama süresinden bağımsız tutulur.",
@@ -110,17 +121,27 @@ const copy = {
     intelligenceSub: "Typed decisions and execution gates from the latest cycle",
     confidence: "Confidence",
     regime: "Market regime",
+    sentimentCycle: "Mamis phase",
+    targetAllocation: "Current / target",
+    direction: "Direction judgment",
+    setupQuality: "Setup quality",
+    macroContext: "Macro regime",
     momentum: "15m / 24h return",
     volatility: "24h realized volatility",
+    positionState: "Position",
+    averageEntry: "Avg. entry",
+    flat: "In USDT",
+    held: "Held",
+    unavailable: "Insufficient history",
     model: "Model",
     noDecision: "No Jev decision has been recorded yet.",
     workflow: "How does the bot work?",
     workflowSub: "An observable, fail-closed decision pipeline repeated every 15 minutes",
     steps: [
       ["01", "Read the account", "USDT, BTC, ETH and XAUT balances plus spot open orders come from the Demo Trading account."],
-      ["02", "Measure the market", "Multi-timeframe returns, trend regime, volatility, volume, order-book and derivatives positioning are computed."],
-      ["03", "Evaluate with Jev", "Jev returns exactly one typed choice per asset: buy, sell or hold."],
-      ["04", "Execute safely", "An order is sent only after confidence, balance, open-order, lot and notional checks pass."],
+      ["02", "Measure the market", "Trend, volatility and volume use closed candles; source-timed order-book and derivatives positioning are also computed."],
+      ["03", "Evaluate with Jev", "Jev produces semantic judgments for direction, follow-through, setup quality, liquidity, disorder and risk reduction."],
+      ["04", "Apply the target", "Code converts judgments into target portfolio weights; orders still require cost, cooldown, drawdown, open-order, lot and slippage gates."],
     ],
     orders: "Spot order history",
     ordersSub: "Demo Trading spot orders persisted independently of Bybit’s seven-day retention window.",
@@ -211,7 +232,12 @@ function statusLabel(status: DashboardState["connection"]["bybit"], lang: Langua
   return t.connectionError;
 }
 
-function actionLabel(action: TradeAction, lang: Language) {
+function actionLabel(action: TradeAction, lang: Language, position?: "flat" | "held") {
+  if (position === "flat" && action === "hold") return lang === "tr" ? "USDT'DE BEKLE" : "STAY IN USDT";
+  if (position === "held" && action === "hold") return lang === "tr" ? "KORU" : "KEEP";
+  if (position === "flat" && action === "buy") return lang === "tr" ? "POZİSYON AÇ" : "ENTER";
+  if (position === "held" && action === "buy") return lang === "tr" ? "ARTIR" : "ADD";
+  if (position === "held" && action === "sell") return lang === "tr" ? "AZALT" : "REDUCE";
   return copy[lang][action];
 }
 
@@ -221,6 +247,23 @@ function regimeLabel(regime: MarketRegime, lang: Language) {
     en: { bull_trend: "Bull trend", bear_trend: "Bear trend", range: "Range", transition: "Transition" },
   } as const;
   return labels[lang][regime];
+}
+
+function mamisLabel(phase: MamisPhase | undefined, lang: Language) {
+  if (!phase) return "—";
+  const labels: Record<Language, Record<MamisPhase, string>> = {
+    tr: {
+      returning_confidence: "Güven geri dönüyor", buy_the_dip: "Düşüşten alım", enthusiasm: "Coşku",
+      disbelief: "İnanmama", panic: "Panik", discouragement: "Yılgınlık", wall_of_worry: "Endişe duvarı",
+      anxiety: "Kaygı", aversion: "Kaçınma", denial: "İnkâr", uncertain: "Belirsiz",
+    },
+    en: {
+      returning_confidence: "Returning confidence", buy_the_dip: "Buy the dip", enthusiasm: "Enthusiasm",
+      disbelief: "Disbelief", panic: "Panic", discouragement: "Discouragement", wall_of_worry: "Wall of worry",
+      anxiety: "Anxiety", aversion: "Aversion", denial: "Denial", uncertain: "Uncertain",
+    },
+  };
+  return labels[lang][phase];
 }
 
 function CapitalChart({ history, lang }: { history: DailyPortfolioPoint[]; lang: Language }) {
@@ -461,16 +504,17 @@ export default function Dashboard() {
       <section className="panel section-panel">
         <div className="panel-heading panel-heading--split">
           <div><span className="section-kicker">SYSTEM ONE</span><h2>{t.intelligence}</h2><p>{t.intelligenceSub}</p></div>
-          <span className="model-chip">{t.model}: {latestRun?.model ?? "jev-1.13.0"}</span>
+          <span className="model-chip">{t.model}: {latestRun?.model ?? "jev-1.13.0"} · {t.macroContext}: {latestRun?.decisionContext?.macro?.policy_regime?.replaceAll("_", " ") ?? "—"}</span>
         </div>
         {latestRun?.decisions.length ? (
           <div className="decision-grid">
             {latestRun.decisions.map((decision) => {
               const execution = latestRun.executions.find((item) => item.asset === decision.asset);
               const market = latestRun.marketState?.[decision.asset];
+              const position = latestRun.decisionContext?.positions[decision.asset];
               return (
                 <article className={`decision-card decision-card--${decision.action}`} key={decision.asset}>
-                  <div className="decision-head"><strong>{decision.asset}/USDT</strong><span>{actionLabel(decision.action, lang)}</span></div>
+                  <div className="decision-head"><strong>{decision.asset}/USDT</strong><span>{actionLabel(decision.action, lang, position?.status)}</span></div>
                   <div className="confidence"><div><span>{t.confidence}</span><b>{(decision.confidence * 100).toFixed(1)}%</b></div><div className="confidence-track"><i style={{ width: `${decision.confidence * 100}%` }} /></div></div>
                   <div className="probabilities">
                     {(["buy", "hold", "sell"] as TradeAction[]).map((action) => <span key={action}>{actionLabel(action, lang)} <b>{Math.round(decision.probabilities[action] * 100)}%</b></span>)}
@@ -478,8 +522,23 @@ export default function Dashboard() {
                   {market && (
                     <div className="market-state-row">
                       <span><small>{t.regime}</small><b>{regimeLabel(market.regime, lang)}</b></span>
+                      <span><small>{t.sentimentCycle}</small><b>{mamisLabel(market.mamis_phase, lang)}</b></span>
                       <span><small>{t.momentum}</small><b>{market.return_15m_pct.toFixed(2)}% / {market.return_24h_pct.toFixed(2)}%</b></span>
                       <span><small>{t.volatility}</small><b>{market.realized_volatility_24h_pct.toFixed(2)}%</b></span>
+                    </div>
+                  )}
+                  {position && (
+                    <div className="market-state-row">
+                      <span><small>{t.positionState}</small><b>{position.status === "flat" ? t.flat : t.held}</b></span>
+                      <span><small>{t.targetAllocation}</small><b>{(decision.currentAllocationPct ?? position.allocation_pct).toFixed(1)}% / {(decision.targetAllocationPct ?? position.allocation_pct).toFixed(1)}%</b></span>
+                      <span><small>{t.averageEntry}</small><b>{position.average_entry_price === null ? t.unavailable : `${formatMoney(position.average_entry_price, lang)} USDT`}</b></span>
+                      <span><small>24h Drawdown</small><b>{(latestRun.decisionContext?.portfolioRisk.current_drawdown_pct ?? 0).toFixed(2)}%</b></span>
+                    </div>
+                  )}
+                  {decision.judgments && (
+                    <div className="market-state-row">
+                      <span><small>{t.direction}</small><b>{decision.judgments.direction.choice} · {Math.round(decision.judgments.direction.confidence * 100)}%</b></span>
+                      <span><small>{t.setupQuality}</small><b>{decision.judgments.setup_quality.score.toFixed(1)} / 3</b></span>
                     </div>
                   )}
                   <p>{execution?.reason ?? "—"}</p>

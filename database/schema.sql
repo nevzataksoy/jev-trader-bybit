@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS bot_runs (
   status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
   model TEXT,
   market_state JSONB,
+  decision_context JSONB,
   decisions JSONB NOT NULL DEFAULT '[]'::jsonb,
   executions JSONB NOT NULL DEFAULT '[]'::jsonb,
   error TEXT
@@ -42,6 +43,15 @@ CREATE TABLE IF NOT EXISTS spot_orders (
   synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS macro_snapshots (
+  source_observed_at TIMESTAMPTZ PRIMARY KEY,
+  collected_at TIMESTAMPTZ NOT NULL,
+  state JSONB NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC);
 CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS macro_snapshots_collected_idx ON macro_snapshots(collected_at DESC);
+
+ALTER TABLE bot_runs ADD COLUMN IF NOT EXISTS decision_context JSONB;

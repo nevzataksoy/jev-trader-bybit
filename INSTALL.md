@@ -51,6 +51,8 @@ JEV_MODEL_NAME=jev-1.13.0
 
 Uygulama resmî [`@typesafe-ai/sdk`](https://github.com/typesafe-ai/typesafe-sdk-js) paketini ve `systemOne({ state, questions })` çağrısını kullanır.
 
+Günlük ABD tahvil ve reel faiz bağlamı resmî FRED CSV akışından alınır. Ayrı bir FRED API anahtarı gerekmez; başarılı gözlem PostgreSQL'de önbelleğe alınır ve sağlayıcı geçici olarak erişilemezse son veri `stale` işaretlenerek yalnızca bağlam olarak kullanılır.
+
 ### 4. PostgreSQL
 
 Yerel PostgreSQL 17 için parola URL-encode edilerek aşağıdaki bağlantı kullanılabilir:
@@ -97,6 +99,22 @@ TARGET_DAILY_VOLATILITY_PCT=3
 MAX_DAILY_VOLATILITY_PCT=10
 MAX_SPREAD_PCT=0.25
 MIN_BEAR_REBOUND_SCORE=0.62
+ESTIMATED_SLIPPAGE_PCT=0.03
+MAX_MARKET_SLIPPAGE_PCT=0.20
+MIN_TRADABLE_RANGE_TO_COST_RATIO=2.50
+MAX_PORTFOLIO_DRAWDOWN_PCT=3
+ASSET_COOLDOWN_MINUTES=60
+MAX_COMPLETED_ORDERS_24H=8
+MAX_BUYS_PER_CYCLE=1
+ALLOCATION_DEADBAND_PCT=3
+MIN_POLICY_CONFIDENCE=0.58
+MIN_SELL_CONFIDENCE=0.60
+MIN_DIRECTIONAL_EDGE=0.15
+MIN_SETUP_SCORE=1.50
+MIN_LIQUIDITY_PROBABILITY=0.55
+DISORDERLY_PROBABILITY=0.70
+CUT_POSITION_PROBABILITY=0.72
+MACRO_CACHE_HOURS=6
 ALLOW_LIVE_TRADING=false
 ```
 
@@ -142,6 +160,7 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run strategy:report
 npm run dev
 ```
 
@@ -208,6 +227,8 @@ TYPESAFE_API_KEY=...
 JEV_MODEL_NAME=jev-1.13.0
 ```
 
+Daily Treasury, real-yield and breakeven context comes from the official FRED CSV feed and needs no separate API key. Successful observations are cached in PostgreSQL; a provider failure marks the last observation stale instead of inventing a new macro signal.
+
 ### 3. Database
 
 For local PostgreSQL 17, URL-encode the password and use:
@@ -246,6 +267,22 @@ TARGET_DAILY_VOLATILITY_PCT=3
 MAX_DAILY_VOLATILITY_PCT=10
 MAX_SPREAD_PCT=0.25
 MIN_BEAR_REBOUND_SCORE=0.62
+ESTIMATED_SLIPPAGE_PCT=0.03
+MAX_MARKET_SLIPPAGE_PCT=0.20
+MIN_TRADABLE_RANGE_TO_COST_RATIO=2.50
+MAX_PORTFOLIO_DRAWDOWN_PCT=3
+ASSET_COOLDOWN_MINUTES=60
+MAX_COMPLETED_ORDERS_24H=8
+MAX_BUYS_PER_CYCLE=1
+ALLOCATION_DEADBAND_PCT=3
+MIN_POLICY_CONFIDENCE=0.58
+MIN_SELL_CONFIDENCE=0.60
+MIN_DIRECTIONAL_EDGE=0.15
+MIN_SETUP_SCORE=1.50
+MIN_LIQUIDITY_PROBABILITY=0.55
+DISORDERLY_PROBABILITY=0.70
+CUT_POSITION_PROBABILITY=0.72
+MACRO_CACHE_HOURS=6
 ALLOW_LIVE_TRADING=false
 CRON_SECRET=use_at_least_32_random_characters
 ```
@@ -259,6 +296,7 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run strategy:report
 npm run dev
 ```
 

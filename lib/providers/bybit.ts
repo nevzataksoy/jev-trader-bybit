@@ -7,6 +7,7 @@ import {
 } from "../config";
 import type {
   AssetId,
+  FeeRate,
   OrderHistoryItem,
   SpotBalance,
   TickerPrices,
@@ -105,6 +106,23 @@ export async function getSpotBalances(prices?: TickerPrices): Promise<SpotBalanc
       usdtValue: total * price,
     };
   });
+}
+
+export async function getSpotFeeRates(): Promise<Record<TradeAsset, FeeRate>> {
+  const client = getBybitAccountClient();
+  const entries = await Promise.all((Object.keys(SYMBOLS) as TradeAsset[]).map(async (asset) => {
+    const symbol = SYMBOLS[asset];
+    const response = await client.getFeeRate({ category: "spot", symbol });
+    assertBybitResponse(response, `Spot fee-rate request for ${symbol}`);
+    const fee = response.result.list[0];
+    const makerFeePct = Number(fee?.makerFeeRate) * 100;
+    const takerFeePct = Number(fee?.takerFeeRate) * 100;
+    if (!fee || !Number.isFinite(makerFeePct) || !Number.isFinite(takerFeePct)) {
+      throw new Error(`Spot fee rate is unavailable for ${symbol}.`);
+    }
+    return [asset, { symbol, maker_fee_pct: makerFeePct, taker_fee_pct: takerFeePct }] as const;
+  }));
+  return Object.fromEntries(entries) as Record<TradeAsset, FeeRate>;
 }
 
 type RawOrder = Awaited<ReturnType<RestClientV5["getHistoricOrders"]>>["result"]["list"][number];
@@ -213,6 +231,7 @@ export async function executeMarketBuy(
   percentage: number,
   minimumUsdt: number,
   orderLinkId: string,
+  maxSlippagePct: number,
 ) {
   const symbol = SYMBOLS[asset];
   const [prices, rules] = await Promise.all([getSpotPrices(), getInstrumentRules(symbol)]);
@@ -233,6 +252,8 @@ export async function executeMarketBuy(
     marketUnit: "quoteCoin",
     isLeverage: 0,
     orderLinkId,
+    slippageToleranceType: "Percent",
+    slippageTolerance: maxSlippagePct.toFixed(2),
   });
   assertBybitResponse(response, `Market buy for ${symbol}`);
   return response.result;
@@ -243,6 +264,7 @@ export async function executeMarketSell(
   percentage: number,
   minimumUsdt: number,
   orderLinkId: string,
+  maxSlippagePct: number,
 ) {
   const symbol = SYMBOLS[asset];
   const [prices, rules] = await Promise.all([getSpotPrices(), getInstrumentRules(symbol)]);
@@ -263,6 +285,8 @@ export async function executeMarketSell(
     marketUnit: "baseCoin",
     isLeverage: 0,
     orderLinkId,
+    slippageToleranceType: "Percent",
+    slippageTolerance: maxSlippagePct.toFixed(2),
   });
   assertBybitResponse(response, `Market sell for ${symbol}`);
   return response.result;

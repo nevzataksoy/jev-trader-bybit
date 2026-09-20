@@ -31,6 +31,22 @@ export function getTradingConfig() {
     maxDailyVolatilityPct: numberFromEnv("MAX_DAILY_VOLATILITY_PCT", 10, 0.5, 100),
     maxSpreadPct: numberFromEnv("MAX_SPREAD_PCT", 0.25, 0.001, 5),
     minBearReboundScore: numberFromEnv("MIN_BEAR_REBOUND_SCORE", 0.62, 0, 1),
+    estimatedSlippagePct: numberFromEnv("ESTIMATED_SLIPPAGE_PCT", 0.03, 0, 2),
+    maxMarketSlippagePct: numberFromEnv("MAX_MARKET_SLIPPAGE_PCT", 0.2, 0.01, 10),
+    minTradableRangeToCostRatio: numberFromEnv("MIN_TRADABLE_RANGE_TO_COST_RATIO", 2.5, 1, 20),
+    maxPortfolioDrawdownPct: numberFromEnv("MAX_PORTFOLIO_DRAWDOWN_PCT", 3, 0.1, 50),
+    assetCooldownMinutes: numberFromEnv("ASSET_COOLDOWN_MINUTES", 60, 0, 10_080),
+    maxCompletedOrders24h: numberFromEnv("MAX_COMPLETED_ORDERS_24H", 8, 1, 100),
+    maxBuysPerCycle: Math.round(numberFromEnv("MAX_BUYS_PER_CYCLE", 1, 1, 3)),
+    allocationDeadbandPct: numberFromEnv("ALLOCATION_DEADBAND_PCT", 3, 0.25, 25),
+    minPolicyConfidence: numberFromEnv("MIN_POLICY_CONFIDENCE", 0.58, 0, 1),
+    minSellConfidence: numberFromEnv("MIN_SELL_CONFIDENCE", 0.60, 0, 1),
+    minDirectionalEdge: numberFromEnv("MIN_DIRECTIONAL_EDGE", 0.15, 0, 0.9),
+    minSetupScore: numberFromEnv("MIN_SETUP_SCORE", 1.5, 0, 3),
+    minLiquidityProbability: numberFromEnv("MIN_LIQUIDITY_PROBABILITY", 0.55, 0, 1),
+    disorderlyProbability: numberFromEnv("DISORDERLY_PROBABILITY", 0.70, 0, 1),
+    cutPositionProbability: numberFromEnv("CUT_POSITION_PROBABILITY", 0.72, 0, 1),
+    macroCacheHours: numberFromEnv("MACRO_CACHE_HOURS", 6, 1, 24),
   };
 }
 

@@ -6,6 +6,19 @@ export type AssetId = (typeof ASSET_IDS)[number];
 export type TradeAsset = (typeof TRADE_ASSETS)[number];
 export type TradeAction = "buy" | "sell" | "hold";
 export type MarketRegime = "bull_trend" | "bear_trend" | "range" | "transition";
+export type MamisPhase =
+  | "returning_confidence"
+  | "buy_the_dip"
+  | "enthusiasm"
+  | "disbelief"
+  | "panic"
+  | "discouragement"
+  | "wall_of_worry"
+  | "anxiety"
+  | "aversion"
+  | "denial"
+  | "uncertain";
+export type MacroSeriesId = "DGS1" | "DGS2" | "DGS10" | "DFII10" | "T10YIE";
 
 export interface SpotBalance {
   coin: AssetId;
@@ -20,7 +33,11 @@ export type TickerPrices = Record<AssetId, number>;
 export interface MarketIndicatorState {
   symbol: string;
   source: "bybit-mainnet";
+  collected_at: string;
   observed_at: string;
+  ticker_at: string;
+  orderbook_at: string;
+  last_closed_15m_at: string;
   last_price: number;
   change_24h_pct: number;
   turnover_24h_usdt: number;
@@ -45,8 +62,15 @@ export interface MarketIndicatorState {
   bb_position: number;
   macd_hist: number;
   realized_volatility_24h_pct: number;
+  downside_volatility_24h_pct: number;
   volume_ratio_20: number;
+  volume_zscore_20: number;
   price_zscore_20: number;
+  distance_vwap_24h_pct: number;
+  trend_efficiency_4h: number;
+  up_fraction_4h: number;
+  return_streak_15m: number;
+  drawdown_20d_pct: number;
   adx_14: number;
   plus_di_14: number;
   minus_di_14: number;
@@ -57,11 +81,101 @@ export interface MarketIndicatorState {
   orderbook_imbalance: number;
   bid_depth_50_usdt: number;
   ask_depth_50_usdt: number;
+  depth_ratio: number;
+  taker_buy_ratio: number | null;
+  trade_flow_imbalance: number | null;
   open_interest_usdt_estimate: number | null;
   open_interest_change_1h_pct: number | null;
   open_interest_change_4h_pct: number | null;
   funding_rate_latest_pct: number | null;
   data_quality: "complete" | "spot_only";
+  mamis_phase: MamisPhase;
+  mamis_confidence: number;
+  mamis_evidence: string[];
+}
+
+export interface MacroSeriesObservation {
+  value_pct: number;
+  observed_at: string;
+  change_1d_bps: number | null;
+  change_5d_bps: number | null;
+  change_zscore_60d: number | null;
+}
+
+export interface MacroState {
+  source: "fred";
+  collected_at: string;
+  source_observed_at: string | null;
+  data_quality: "complete" | "partial" | "stale" | "unavailable";
+  series: Record<MacroSeriesId, MacroSeriesObservation | null>;
+  curve: {
+    slope_10y_2y_bps: number | null;
+    slope_2y_1y_bps: number | null;
+  };
+  policy_regime: "tightening_shock" | "easing_shock" | "tightening" | "easing" | "stable" | "unknown";
+  gold_real_yield_regime: "supportive" | "restrictive" | "neutral" | "unknown";
+  semantic: {
+    front_end: string;
+    long_end: string;
+    curve: string;
+    real_yield: string;
+    inflation_expectations: string;
+  };
+  error: string | null;
+}
+
+export interface PositionContext {
+  asset: TradeAsset;
+  status: "flat" | "held";
+  quantity: number;
+  value_usdt: number;
+  allocation_pct: number;
+  average_entry_price: number | null;
+  unrealized_pnl_pct: number | null;
+  cost_basis_quality: "complete" | "partial" | "unavailable";
+  last_trade_action: "buy" | "sell" | null;
+  last_trade_at: string | null;
+  minutes_since_last_trade: number | null;
+}
+
+export interface FeeRate {
+  symbol: string;
+  maker_fee_pct: number;
+  taker_fee_pct: number;
+}
+
+export interface PortfolioRiskContext {
+  window_hours: 24;
+  starting_equity_usdt: number | null;
+  peak_equity_usdt: number | null;
+  current_drawdown_pct: number;
+  completed_orders_24h: number;
+}
+
+export interface DecisionContextSnapshot {
+  positions: Record<TradeAsset, PositionContext>;
+  fees: Record<TradeAsset, FeeRate>;
+  portfolioRisk: PortfolioRiskContext;
+  macro: MacroState | null;
+}
+
+export interface JevChoiceJudgment<T extends string> {
+  choice: T;
+  confidence: number;
+  probabilities: Record<T, number>;
+}
+
+export interface JevAssetJudgments {
+  direction: JevChoiceJudgment<"up" | "down" | "unclear">;
+  follow_through: JevChoiceJudgment<"continuation" | "reversal" | "no_pattern">;
+  setup_quality: {
+    score: number;
+    confidence: number;
+    probabilities: Record<string, number>;
+  };
+  liquidity_ok: number;
+  disorderly: number;
+  cut_position: number;
 }
 
 export interface JevDecision {
@@ -69,6 +183,11 @@ export interface JevDecision {
   action: TradeAction;
   confidence: number;
   probabilities: Record<TradeAction, number>;
+  currentAllocationPct: number;
+  targetAllocationPct: number;
+  rebalanceDeltaPct: number;
+  policyReason: string;
+  judgments: JevAssetJudgments;
 }
 
 export interface JevResponse {
@@ -118,10 +237,12 @@ export interface BotExecutionResult {
   asset: TradeAsset;
   symbol: string;
   action: TradeAction;
-  status: "submitted" | "held" | "skipped" | "failed" | "disabled";
+  status: "submitted" | "confirmed" | "held" | "skipped" | "failed" | "disabled";
   reason: string;
   orderId?: string;
   orderLinkId?: string;
+  filledQuantity?: number;
+  filledValueUsdt?: number;
 }
 
 export interface BotRunSummary {
@@ -131,6 +252,7 @@ export interface BotRunSummary {
   status: "running" | "completed" | "failed" | "skipped";
   model: string | null;
   marketState: Record<TradeAsset, MarketIndicatorState> | null;
+  decisionContext: DecisionContextSnapshot | null;
   decisions: JevDecision[];
   executions: BotExecutionResult[];
   error: string | null;

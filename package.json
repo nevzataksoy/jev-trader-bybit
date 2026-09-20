@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:setup": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/setup-db.mjs",
+    "strategy:report": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/strategy-report.mjs",
     "quality": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

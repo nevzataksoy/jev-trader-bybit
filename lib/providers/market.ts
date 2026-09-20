@@ -1,8 +1,16 @@
 import { SYMBOLS } from "../config";
-import type { MarketIndicatorState, MarketRegime, TradeAsset } from "../types";
+import type { MamisPhase, MarketIndicatorState, MarketRegime, TradeAsset } from "../types";
 import { getMainnetMarketClient } from "./bybit";
 
-type Candle = { high: number; low: number; close: number; turnover: number };
+type Candle = {
+  startTime: number;
+  closeTime: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  turnover: number;
+};
 type RegimeInput = {
   lastPrice: number; ema9: number; ema21: number; ema50: number; ema200: number;
   return4h: number; return24h: number; adx: number; plusDi: number; minusDi: number;
@@ -16,11 +24,37 @@ function assertResponse(response: { retCode: number; retMsg: string }, operation
 function round(value: number, digits = 4) { return Number(value.toFixed(digits)); }
 function clamp(value: number, minimum = 0, maximum = 1) { return Math.min(maximum, Math.max(minimum, value)); }
 
-function parseCandles(list: string[][]): Candle[] {
-  return [...list].reverse().map((candle) => ({
-    high: Number(candle[2]), low: Number(candle[3]), close: Number(candle[4]),
-    turnover: Number(candle[6]),
-  }));
+export function assertFreshMarketTimestamps(
+  tickerTime: number,
+  orderbookTime: number,
+  lastClosed15mTime: number,
+  now: number,
+) {
+  const sourceAges = [tickerTime, orderbookTime].map((timestamp) => now - timestamp);
+  if (sourceAges.some((age) => !Number.isFinite(age) || age < -60_000 || age > 5 * 60 * 1_000)) {
+    throw new Error("Ticker or order-book source timestamp is stale or invalid.");
+  }
+  const candleAge = now - lastClosed15mTime;
+  if (!Number.isFinite(candleAge) || candleAge < -60_000 || candleAge > 20 * 60 * 1_000) {
+    throw new Error("Latest closed 15-minute candle timestamp is stale or invalid.");
+  }
+}
+
+export function parseClosedCandles(list: string[][], intervalMinutes: number, serverTime: number): Candle[] {
+  const intervalMs = intervalMinutes * 60 * 1_000;
+  return [...list]
+    .reverse()
+    .map((candle) => ({
+      startTime: Number(candle[0]),
+      closeTime: Number(candle[0]) + intervalMs,
+      high: Number(candle[2]),
+      low: Number(candle[3]),
+      close: Number(candle[4]),
+      volume: Number(candle[5]),
+      turnover: Number(candle[6]),
+    }))
+    .filter((candle) => candle.closeTime <= serverTime)
+    .filter((candle) => [candle.startTime, candle.high, candle.low, candle.close, candle.volume, candle.turnover].every(Number.isFinite));
 }
 
 function percentageReturn(values: number[], periods: number) {
@@ -146,6 +180,131 @@ export function calculateRealizedVolatility(values: number[], intervalsPerDay = 
   return standardDeviation(logReturns) * Math.sqrt(intervalsPerDay) * 100;
 }
 
+export function calculateDownsideVolatility(values: number[], intervalsPerDay = 96) {
+  const window = values.slice(-(intervalsPerDay + 1));
+  if (window.length < intervalsPerDay + 1) throw new Error("Downside volatility lacks a full window.");
+  const negativeReturns = window.slice(1)
+    .map((value, index) => Math.log(value / window[index]))
+    .filter((value) => value < 0);
+  return negativeReturns.length < 2 ? 0 : standardDeviation(negativeReturns) * Math.sqrt(intervalsPerDay) * 100;
+}
+
+export function calculateTrendEfficiency(values: number[], periods: number) {
+  const window = values.slice(-(periods + 1));
+  if (window.length < periods + 1) throw new Error("Trend efficiency lacks enough observations.");
+  const netMove = Math.abs(window.at(-1)! - window[0]);
+  const travelled = window.slice(1).reduce((sum, value, index) => sum + Math.abs(value - window[index]), 0);
+  return travelled === 0 ? 0 : netMove / travelled;
+}
+
+export function calculateReturnStreak(values: number[]) {
+  if (values.length < 2) return 0;
+  let streak = 0;
+  for (let index = values.length - 1; index > 0; index -= 1) {
+    const direction = Math.sign(values[index] - values[index - 1]);
+    if (direction === 0 || (streak !== 0 && Math.sign(streak) !== direction)) break;
+    streak += direction;
+  }
+  return streak;
+}
+
+type MamisInput = {
+  regime: MarketRegime;
+  lastPrice: number;
+  ema50: number;
+  ema200: number;
+  rsi: number;
+  priceZScore: number;
+  volumeRatio: number;
+  volumeZScore: number;
+  adx: number;
+  plusDi: number;
+  minusDi: number;
+  return1h: number;
+  return4h: number;
+  return24h: number;
+  return7d: number;
+  return30d: number;
+  macdHistogram: number;
+};
+
+export function classifyMamisPhase(input: MamisInput): { phase: MamisPhase; confidence: number; evidence: string[] } {
+  const phases = [
+    "returning_confidence", "buy_the_dip", "enthusiasm", "disbelief", "panic",
+    "discouragement", "wall_of_worry", "anxiety", "aversion", "denial",
+  ] as const;
+  const scores = Object.fromEntries(phases.map((phase) => [phase, { score: 0, evidence: [] as string[] }])) as Record<(typeof phases)[number], { score: number; evidence: string[] }>;
+  const add = (phase: (typeof phases)[number], condition: boolean, weight: number, evidence: string) => {
+    if (condition) {
+      scores[phase].score += weight;
+      scores[phase].evidence.push(evidence);
+    }
+  };
+
+  add("enthusiasm", input.regime === "bull_trend", 1.2, "established bull trend");
+  add("enthusiasm", input.priceZScore >= 1.4, 1, "price materially extended above its recent mean");
+  add("enthusiasm", input.rsi >= 67, 0.8, "high momentum reading");
+  add("enthusiasm", input.volumeRatio >= 1.2, 0.6, "above-normal participation");
+
+  add("buy_the_dip", input.regime === "bull_trend", 1.2, "primary trend remains positive");
+  add("buy_the_dip", input.return1h < 0 && input.return24h > 0, 1, "short pullback inside a positive day");
+  add("buy_the_dip", input.priceZScore < 0 && input.lastPrice > input.ema200, 0.8, "discounted locally while above the long trend");
+
+  add("returning_confidence", input.return4h > 0 && input.return24h > 0, 1, "short and daily momentum have turned positive");
+  add("returning_confidence", input.lastPrice > input.ema50 && input.return30d < 0, 1.2, "price recovered above the medium trend while the long lookback remains damaged");
+  add("returning_confidence", input.macdHistogram > 0 && input.plusDi > input.minusDi, 0.8, "momentum and directional movement are improving together");
+
+  add("disbelief", input.regime !== "bull_trend" && input.return1h > 0 && input.return24h < 0, 1.2, "rebound is occurring inside a weak daily structure");
+  add("disbelief", input.lastPrice < input.ema200 && input.plusDi > input.minusDi, 1, "buyers improved before the long trend was reclaimed");
+
+  add("panic", input.return24h < 0 && input.priceZScore <= -1.6, 1.2, "price is deeply below its recent mean during a negative day");
+  add("panic", input.volumeZScore >= 1.2, 0.9, "abnormal trading participation");
+  add("panic", input.adx >= 25 && input.minusDi > input.plusDi, 1.1, "strong directional selling pressure");
+
+  add("discouragement", input.return7d < 0 && input.return30d < 0, 1.2, "weekly and monthly returns remain negative");
+  add("discouragement", input.adx < 22 && input.volumeRatio < 1, 1, "downtrend participation and directional strength have faded");
+  add("discouragement", input.rsi >= 35 && input.rsi <= 55, 0.6, "momentum is subdued rather than capitulating");
+
+  add("wall_of_worry", input.regime === "bull_trend" && input.rsi >= 45 && input.rsi <= 65, 1.2, "orderly bull trend without extreme momentum");
+  add("wall_of_worry", input.priceZScore >= -0.3 && input.priceZScore <= 1, 0.8, "price is advancing without statistical extension");
+  add("wall_of_worry", input.volumeRatio >= 0.7 && input.volumeRatio <= 1.4, 0.6, "participation is balanced");
+
+  add("anxiety", input.regime === "transition" && input.return30d > 0, 1, "a previously positive long window has entered transition");
+  add("anxiety", input.return4h < 0 && input.minusDi > input.plusDi, 1, "short-term selling pressure is increasing");
+
+  add("aversion", input.return30d < 0 && input.rsi < 42, 1, "long-window losses coexist with weak momentum");
+  add("aversion", input.volumeRatio < 0.8 && input.regime !== "bull_trend", 1, "participation is depressed outside a bull trend");
+
+  add("denial", input.regime === "bear_trend" && input.return30d > 0, 1.2, "bear trend conflicts with a still-positive monthly return");
+  add("denial", input.return24h < 0 && input.lastPrice < input.ema50, 0.9, "daily weakness has broken the medium trend");
+
+  const ranked = phases.map((phase) => ({ phase, ...scores[phase] })).sort((left, right) => right.score - left.score);
+  const best = ranked[0];
+  const margin = best.score - ranked[1].score;
+  if (best.score < 1.8 || margin < 0.25) {
+    return { phase: "uncertain", confidence: round(clamp(best.score / 4) * 0.7, 3), evidence: best.evidence };
+  }
+  return { phase: best.phase, confidence: round(clamp((best.score + margin) / 4), 3), evidence: best.evidence };
+}
+
+export function stabilizeMamisPhases(
+  current: Record<TradeAsset, MarketIndicatorState>,
+  previous: Record<TradeAsset, MarketIndicatorState> | null,
+) {
+  if (!previous) return current;
+  return Object.fromEntries((Object.keys(current) as TradeAsset[]).map((asset) => {
+    const latest = current[asset];
+    const prior = previous[asset];
+    if (!prior?.mamis_phase || latest.mamis_phase === prior.mamis_phase || latest.mamis_confidence >= 0.75) return [asset, latest];
+    return [asset, {
+      ...latest,
+      mamis_phase: prior.mamis_phase,
+      mamis_confidence: round(Math.max(0.5, prior.mamis_confidence - 0.1), 3),
+      mamis_evidence: [...latest.mamis_evidence, "phase transition held for one more cycle by hysteresis"],
+    }];
+  })) as Record<TradeAsset, MarketIndicatorState>;
+}
+
 export function classifyRegime(input: RegimeInput): { regime: MarketRegime; trendScore: number } {
   const votes = [
     input.lastPrice > input.ema50 ? 1 : -1,
@@ -176,8 +335,8 @@ export class MarketDataAggregator {
   }
 
   async fetchSymbolState(symbol: string): Promise<MarketIndicatorState> {
-    const [technical, orderbook, ticker, derivatives] = await Promise.all([
-      this.getTechnicalState(symbol), this.getOrderbookState(symbol), this.getTickerState(symbol), this.getDerivativeState(symbol),
+    const [technical, orderbook, ticker, derivatives, tradeFlow] = await Promise.all([
+      this.getTechnicalState(symbol), this.getOrderbookState(symbol), this.getTickerState(symbol), this.getDerivativeState(symbol), this.getTradeFlowState(symbol),
     ]);
     const reboundScore =
       (technical.return_15m_pct > 0 ? 0.16 : 0) +
@@ -187,9 +346,22 @@ export class MarketDataAggregator {
       (technical.macd_hist > 0 ? 0.12 : 0) +
       clamp(orderbook.orderbook_imbalance / 0.2) * 0.14 +
       clamp((technical.volume_ratio_20 - 0.8) / 1.2) * 0.14;
+    const { sourceTime: tickerSourceTime, ...tickerState } = ticker;
+    const { sourceTime: orderbookSourceTime, ...orderbookState } = orderbook;
+    const { lastClosed15mAt, ...technicalState } = technical;
+    const collectedTime = Date.now();
+    assertFreshMarketTimestamps(tickerSourceTime, orderbookSourceTime, lastClosed15mAt, collectedTime);
+    const collectedAt = new Date(collectedTime).toISOString();
+    const observedAt = new Date(Math.min(tickerSourceTime, orderbookSourceTime)).toISOString();
     return {
-      symbol, source: "bybit-mainnet", observed_at: new Date().toISOString(),
-      ...ticker, ...technical, ...orderbook, ...derivatives,
+      symbol,
+      source: "bybit-mainnet",
+      collected_at: collectedAt,
+      observed_at: observedAt,
+      ticker_at: new Date(tickerSourceTime).toISOString(),
+      orderbook_at: new Date(orderbookSourceTime).toISOString(),
+      last_closed_15m_at: new Date(lastClosed15mAt).toISOString(),
+      ...tickerState, ...technicalState, ...orderbookState, ...derivatives, ...tradeFlow,
       relative_strength_vs_btc_24h_pct: 0,
       countertrend_rebound_score: round(reboundScore, 4),
       data_quality: derivatives.open_interest_usdt_estimate === null ? "spot_only" : "complete",
@@ -201,7 +373,12 @@ export class MarketDataAggregator {
     assertResponse(response, `Ticker request for ${symbol}`);
     const ticker = response.result.list[0];
     if (!ticker) throw new Error(`Ticker is unavailable for ${symbol}.`);
-    return { last_price: Number(ticker.lastPrice), change_24h_pct: round(Number(ticker.price24hPcnt) * 100, 3), turnover_24h_usdt: round(Number(ticker.turnover24h), 2) };
+    return {
+      sourceTime: Number(response.time),
+      last_price: Number(ticker.lastPrice),
+      change_24h_pct: round(Number(ticker.price24hPcnt) * 100, 3),
+      turnover_24h_usdt: round(Number(ticker.turnover24h), 2),
+    };
   }
 
   private async getTechnicalState(symbol: string) {
@@ -213,9 +390,9 @@ export class MarketDataAggregator {
     assertResponse(fifteenMinuteResponse, `15-minute kline request for ${symbol}`);
     assertResponse(hourlyResponse, `Hourly kline request for ${symbol}`);
     assertResponse(fourHourlyResponse, `Four-hour kline request for ${symbol}`);
-    const candles = parseCandles(fifteenMinuteResponse.result.list);
-    const hourlyCandles = parseCandles(hourlyResponse.result.list);
-    const fourHourlyCandles = parseCandles(fourHourlyResponse.result.list);
+    const candles = parseClosedCandles(fifteenMinuteResponse.result.list, 15, Number(fifteenMinuteResponse.time));
+    const hourlyCandles = parseClosedCandles(hourlyResponse.result.list, 60, Number(hourlyResponse.time));
+    const fourHourlyCandles = parseClosedCandles(fourHourlyResponse.result.list, 240, Number(fourHourlyResponse.time));
     if (candles.length < 201 || hourlyCandles.length < 169 || fourHourlyCandles.length < 181) throw new Error(`${symbol} returned insufficient multi-timeframe candles.`);
     const closes = candles.map((candle) => candle.close);
     const hourlyCloses = hourlyCandles.map((candle) => candle.close);
@@ -235,18 +412,62 @@ export class MarketDataAggregator {
     const recentTurnover = candles.at(-1)!.turnover;
     const previousTurnovers = candles.slice(-21, -1).map((candle) => candle.turnover);
     const averageTurnover = previousTurnovers.reduce((sum, value) => sum + value, 0) / previousTurnovers.length;
+    const turnoverDeviation = standardDeviation(previousTurnovers);
+    const last24hCandles = candles.slice(-96);
+    const vwapVolume = last24hCandles.reduce((sum, candle) => sum + candle.volume, 0);
+    const sessionVwap = vwapVolume > 0
+      ? last24hCandles.reduce((sum, candle) => sum + candle.turnover, 0) / vwapVolume
+      : closes.at(-1)!;
+    const recentChanges = closes.slice(-17).slice(1).map((value, index) => value - closes.slice(-17)[index]);
+    const upFraction4h = recentChanges.filter((value) => value > 0).length / recentChanges.length;
+    const twentyDayPeak = Math.max(...fourHourlyCloses.slice(-120));
+    const return1h = percentageReturn(closes, 4);
+    const return7d = percentageReturn(hourlyCloses, 168);
+    const return30d = percentageReturn(fourHourlyCloses, 180);
+    const macdHistogram = calculateMacdHistogram(closes);
+    const mamis = classifyMamisPhase({
+      regime: regime.regime,
+      lastPrice: closes.at(-1)!,
+      ema50: ema50.at(-1)!,
+      ema200: ema200.at(-1)!,
+      rsi: calculateRsi(closes),
+      priceZScore: bollinger.zScore,
+      volumeRatio: averageTurnover > 0 ? recentTurnover / averageTurnover : 1,
+      volumeZScore: turnoverDeviation > 0 ? (recentTurnover - averageTurnover) / turnoverDeviation : 0,
+      adx: directional.adx,
+      plusDi: directional.plusDi,
+      minusDi: directional.minusDi,
+      return1h,
+      return4h,
+      return24h,
+      return7d,
+      return30d,
+      macdHistogram,
+    });
     return {
-      return_15m_pct: round(percentageReturn(closes, 1), 4), return_1h_pct: round(percentageReturn(closes, 4), 4),
+      lastClosed15mAt: candles.at(-1)!.closeTime,
+      return_15m_pct: round(percentageReturn(closes, 1), 4), return_1h_pct: round(return1h, 4),
       return_4h_pct: round(return4h, 4), return_24h_pct: round(return24h, 4),
-      return_7d_pct: round(percentageReturn(hourlyCloses, 168), 4), return_30d_pct: round(percentageReturn(fourHourlyCloses, 180), 4),
+      return_7d_pct: round(return7d, 4), return_30d_pct: round(return30d, 4),
       ema_9: round(ema9.at(-1)!, 4), ema_21: round(ema21.at(-1)!, 4), ema_50: round(ema50.at(-1)!, 4), ema_200: round(ema200.at(-1)!, 4),
       ema_50_slope_3h_pct: round(((ema50.at(-1)! / ema50.at(-13)!) - 1) * 100, 4),
       rsi_14: round(calculateRsi(closes), 3), atr_14: round(atr, 4), atr_14_pct: round((atr / closes.at(-1)!) * 100, 4),
       bb_upper: round(bollinger.upper, 4), bb_lower: round(bollinger.lower, 4), bb_width_pct: round(bollinger.widthPct, 3), bb_position: round(bollinger.position, 4),
-      macd_hist: round(calculateMacdHistogram(closes), 6), realized_volatility_24h_pct: round(calculateRealizedVolatility(closes), 4),
-      volume_ratio_20: round(averageTurnover > 0 ? recentTurnover / averageTurnover : 1, 4), price_zscore_20: round(bollinger.zScore, 4),
+      macd_hist: round(macdHistogram, 6), realized_volatility_24h_pct: round(calculateRealizedVolatility(closes), 4),
+      downside_volatility_24h_pct: round(calculateDownsideVolatility(closes), 4),
+      volume_ratio_20: round(averageTurnover > 0 ? recentTurnover / averageTurnover : 1, 4),
+      volume_zscore_20: round(turnoverDeviation > 0 ? (recentTurnover - averageTurnover) / turnoverDeviation : 0, 4),
+      price_zscore_20: round(bollinger.zScore, 4),
+      distance_vwap_24h_pct: round(((closes.at(-1)! / sessionVwap) - 1) * 100, 4),
+      trend_efficiency_4h: round(calculateTrendEfficiency(closes, 16), 4),
+      up_fraction_4h: round(upFraction4h, 4),
+      return_streak_15m: calculateReturnStreak(closes),
+      drawdown_20d_pct: round(twentyDayPeak > 0 ? ((closes.at(-1)! / twentyDayPeak) - 1) * 100 : 0, 4),
       adx_14: round(directional.adx, 3), plus_di_14: round(directional.plusDi, 3), minus_di_14: round(directional.minusDi, 3),
       trend_score: round(regime.trendScore, 4), regime: regime.regime,
+      mamis_phase: mamis.phase,
+      mamis_confidence: mamis.confidence,
+      mamis_evidence: mamis.evidence,
     };
   }
 
@@ -262,7 +483,36 @@ export class MarketDataAggregator {
     const totalBid = bids.reduce((sum, bid) => sum + Number(bid[0]) * Number(bid[1]), 0);
     const totalAsk = asks.reduce((sum, ask) => sum + Number(ask[0]) * Number(ask[1]), 0);
     const depth = totalBid + totalAsk;
-    return { bid_ask_spread_pct: round(((bestAsk - bestBid) / midpoint) * 100, 5), orderbook_imbalance: round(depth > 0 ? (totalBid - totalAsk) / depth : 0, 4), bid_depth_50_usdt: round(totalBid, 2), ask_depth_50_usdt: round(totalAsk, 2) };
+    return {
+      sourceTime: Number(response.result.cts || response.result.ts || response.time),
+      bid_ask_spread_pct: round(((bestAsk - bestBid) / midpoint) * 100, 5),
+      orderbook_imbalance: round(depth > 0 ? (totalBid - totalAsk) / depth : 0, 4),
+      bid_depth_50_usdt: round(totalBid, 2),
+      ask_depth_50_usdt: round(totalAsk, 2),
+      depth_ratio: round(totalAsk > 0 ? totalBid / totalAsk : 0, 4),
+    };
+  }
+
+  private async getTradeFlowState(symbol: string) {
+    try {
+      const response = await this.client.getPublicTradingHistory({ category: "spot", symbol, limit: 1_000 });
+      assertResponse(response, `Recent trades request for ${symbol}`);
+      let buyNotional = 0;
+      let sellNotional = 0;
+      for (const trade of response.result.list) {
+        const notional = Number(trade.price) * Number(trade.size);
+        if (!Number.isFinite(notional)) continue;
+        if (trade.side === "Buy") buyNotional += notional;
+        else sellNotional += notional;
+      }
+      const total = buyNotional + sellNotional;
+      return {
+        taker_buy_ratio: total > 0 ? round(buyNotional / total, 4) : null,
+        trade_flow_imbalance: total > 0 ? round((buyNotional - sellNotional) / total, 4) : null,
+      };
+    } catch {
+      return { taker_buy_ratio: null, trade_flow_imbalance: null };
+    }
   }
 
   private async getDerivativeState(symbol: string) {

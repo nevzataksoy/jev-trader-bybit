@@ -11,8 +11,8 @@ if (!connectionString) {
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const schema = await readFile(join(scriptDirectory, "..", "database", "schema.sql"), "utf8");
 const statements = schema
-  .split(/;\s*(?=CREATE)/i)
-  .map((statement) => statement.trim().replace(/;$/, ""))
+  .split(";")
+  .map((statement) => statement.trim())
   .filter(Boolean);
 const sql = postgres(connectionString, { max: 1, connect_timeout: 10, prepare: false });
 try {

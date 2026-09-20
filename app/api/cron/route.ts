@@ -8,6 +8,7 @@ import {
   upsertOrders,
 } from "@/lib/db";
 import { evaluateTradingState } from "@/lib/jev";
+import { getSafeErrorMessage } from "@/lib/errors";
 import {
   calculatePortfolioTotal,
   executeMarketBuy,
@@ -180,7 +181,7 @@ export async function GET(request: Request) {
           symbol,
           action: decision.action,
           status: "failed",
-          reason: error instanceof Error ? error.message : "Unknown execution error",
+          reason: getSafeErrorMessage(error, "Unknown execution error"),
           orderLinkId,
         });
       }
@@ -206,7 +207,7 @@ export async function GET(request: Request) {
       usage: jev.usage,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown cron failure";
+    const message = getSafeErrorMessage(error, "Unknown cron failure");
     if (ownsCycle) {
       try {
         await failBotRun(cycleKey, error);

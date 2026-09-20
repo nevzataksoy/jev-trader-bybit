@@ -165,7 +165,7 @@ Kontrol adresleri:
 8. Demo Trading spot emirlerini doğruladıktan sonra gerekiyorsa `TRADING_ENABLED=true` yapıp yeniden deploy edin.
 9. Üretim URL'sini `NEXT_PUBLIC_APP_URL` olarak ekleyin ve README'deki Live deployment satırını gerçek URL ile değiştirin.
 
-> Depoyu Vercel Hobby ile uyumlu tutmak için `vercel.json` içinde yerleşik cron tanımı bulunmaz. Zamanlama cron-job.org tarafından gerçekleştirilir.
+> Depoyu Vercel Hobby ile uyumlu tutmak için `vercel.json` yalnızca `fra1` Frankfurt fonksiyon bölgesini seçer; yerleşik cron tanımı içermez. Bybit ABD çıkışlı istekleri engellediğinden Vercel'in varsayılan `iad1` bölgesi kullanılmaz. Zamanlama cron-job.org tarafından gerçekleştirilir.
 
 ---
 
@@ -293,4 +293,4 @@ Run **Test run** first. A successful request returns HTTP `200` with `{"success"
 8. Enable Demo Trading spot execution only after the observation run is healthy.
 9. Set `NEXT_PUBLIC_APP_URL` and replace the README live-deployment placeholder with the real Vercel URL.
 
-The repository intentionally has no native Vercel Cron definition so it can deploy on Vercel Hobby. Scheduling is handled by cron-job.org.
+The repository's `vercel.json` selects only the `fra1` Frankfurt Function region and intentionally defines no native Vercel Cron, so it remains compatible with Hobby. Bybit blocks US-origin requests, so the default Vercel `iad1` region is not used. Scheduling is handled by cron-job.org.

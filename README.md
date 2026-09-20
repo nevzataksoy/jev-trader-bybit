@@ -82,7 +82,7 @@ TR/EN dashboard aşağıdakileri gösterir:
 
 ### Zamanlayıcı
 
-Proje Vercel Hobby ile deploy edilebilmesi için yerleşik Vercel Cron tanımı içermez. cron-job.org her saatin `00, 15, 30, 45` dakikalarında `GET https://<uygulama-adresi>/api/cron` çağrısı yapar ve Vercel'deki `CRON_SECRET` ile aynı değeri `Authorization: Bearer <secret>` başlığında gönderir.
+Proje Vercel Hobby ile deploy edilebilmesi için yerleşik Vercel Cron tanımı içermez. cron-job.org her saatin `00, 15, 30, 45` dakikalarında `GET https://<uygulama-adresi>/api/cron` çağrısı yapar ve Vercel'deki `CRON_SECRET` ile aynı değeri `Authorization: Bearer <secret>` başlığında gönderir. Vercel fonksiyonları, Bybit'in engellediği varsayılan ABD çıkışı yerine `fra1` Frankfurt bölgesinde çalışır.
 
 ### Sorumluluk reddi
 
@@ -139,7 +139,7 @@ The always-available TR/EN dashboard presents the daily USDT capital curve, asse
 
 ### Scheduler
 
-The repository does not include a native Vercel Cron definition, so it can deploy on Vercel Hobby. cron-job.org calls `GET https://<deployment-url>/api/cron` at minutes `00, 15, 30, 45` of every hour and sends the same secret stored in Vercel as `Authorization: Bearer <secret>`.
+The repository does not include a native Vercel Cron definition, so it can deploy on Vercel Hobby. cron-job.org calls `GET https://<deployment-url>/api/cron` at minutes `00, 15, 30, 45` of every hour and sends the same secret stored in Vercel as `Authorization: Bearer <secret>`. Vercel Functions run in the `fra1` Frankfurt region instead of the default US region blocked by Bybit.
 
 ### Disclaimer
 

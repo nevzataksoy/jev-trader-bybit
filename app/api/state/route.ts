@@ -14,6 +14,7 @@ import {
   getSpotPrices,
   hasBybitCredentials,
 } from "@/lib/providers/bybit";
+import { getSafeErrorMessage } from "@/lib/errors";
 import type { DashboardState, OrderHistoryItem, SpotBalance, TickerPrices } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
       messages.push("Bybit credentials are not configured.");
     }
   } catch (error) {
-    messages.push(error instanceof Error ? error.message : "Bybit connection failed.");
+    messages.push(getSafeErrorMessage(error, "Bybit connection failed."));
   }
 
   let history: DashboardState["history"] = [];
@@ -78,7 +79,7 @@ export async function GET(request: Request) {
       ]);
       databaseStatus = "connected";
     } catch (error) {
-      messages.push(error instanceof Error ? error.message : "Database connection failed.");
+      messages.push(getSafeErrorMessage(error, "Database connection failed."));
     }
   } else {
     messages.push("DATABASE_URL is not configured; historical charts are unavailable.");

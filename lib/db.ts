@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { getSafeErrorMessage } from "./errors";
 import type {
   BotExecutionResult,
   BotRunSummary,
@@ -160,7 +161,7 @@ export async function failBotRun(cycleKey: string, error: unknown) {
   if (!isDatabaseConfigured()) return;
   await ensureDatabase();
   const sql = getSql();
-  const message = error instanceof Error ? error.message : "Unknown cron failure";
+  const message = getSafeErrorMessage(error, "Unknown cron failure");
   await sql`
     UPDATE bot_runs
     SET completed_at = NOW(), status = 'failed', error = ${message.slice(0, 2_000)}

@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { getDatabaseMaintenanceConfig } from "./config";
 import { getSafeErrorMessage } from "./errors";
 import type {
   BotExecutionResult,
@@ -103,10 +104,21 @@ async function createSchema() {
       state JSONB NOT NULL
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS daily_portfolio_snapshots (
+      time_zone TEXT NOT NULL,
+      local_date DATE NOT NULL,
+      captured_at TIMESTAMPTZ NOT NULL,
+      total_portfolio_usdt NUMERIC(30, 10) NOT NULL,
+      prices JSONB NOT NULL,
+      PRIMARY KEY (time_zone, local_date)
+    )
+  `;
   await sql`CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS macro_snapshots_collected_idx ON macro_snapshots(collected_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS daily_portfolio_snapshots_captured_idx ON daily_portfolio_snapshots(captured_at DESC)`;
   await sql`ALTER TABLE bot_runs ADD COLUMN IF NOT EXISTS decision_context JSONB`;
 }
 
@@ -283,6 +295,100 @@ function parseJson<T>(value: unknown, fallback: T): T {
   return value as T;
 }
 
+export interface DatabaseCleanupResult {
+  archivedDailySnapshots: number;
+  expiredRuns: number;
+  expiredOrders: number;
+  expiredMacroSnapshots: number;
+  expiredDailySnapshots: number;
+  staleRunsClosed: number;
+}
+
+export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
+  if (!isDatabaseConfigured()) {
+    return {
+      archivedDailySnapshots: 0,
+      expiredRuns: 0,
+      expiredOrders: 0,
+      expiredMacroSnapshots: 0,
+      expiredDailySnapshots: 0,
+      staleRunsClosed: 0,
+    };
+  }
+  await ensureDatabase();
+  const sql = getSql();
+  const retention = getDatabaseMaintenanceConfig();
+  return sql.begin(async (transaction) => {
+    let archivedDailySnapshots = 0;
+    for (const timeZone of ["UTC", "Europe/Istanbul"] as const) {
+      const archived = await transaction`
+        INSERT INTO daily_portfolio_snapshots (
+          time_zone, local_date, captured_at, total_portfolio_usdt, prices
+        )
+        SELECT DISTINCT ON (local_date)
+          ${timeZone},
+          local_date,
+          captured_at,
+          total_portfolio_usdt,
+          prices
+        FROM (
+          SELECT
+            (captured_at AT TIME ZONE ${timeZone})::date AS local_date,
+            captured_at,
+            total_portfolio_usdt,
+            prices
+          FROM portfolio_snapshots
+        ) localized
+        ORDER BY local_date, captured_at DESC
+        ON CONFLICT (time_zone, local_date) DO UPDATE SET
+          captured_at = EXCLUDED.captured_at,
+          total_portfolio_usdt = EXCLUDED.total_portfolio_usdt,
+          prices = EXCLUDED.prices
+        WHERE EXCLUDED.captured_at > daily_portfolio_snapshots.captured_at
+        RETURNING local_date
+      `;
+      archivedDailySnapshots += archived.length;
+    }
+
+    const staleRuns = await transaction`
+      UPDATE bot_runs
+      SET completed_at = NOW(), status = 'failed', error = COALESCE(error, 'Automatically closed as a stale running cycle.')
+      WHERE status = 'running' AND started_at < NOW() - INTERVAL '24 hours'
+      RETURNING cycle_key
+    `;
+    const expiredRuns = await transaction`
+      DELETE FROM bot_runs
+      WHERE status IN ('completed', 'failed', 'skipped')
+        AND COALESCE(completed_at, started_at) < NOW() - (${retention.detailedRunRetentionDays} * INTERVAL '1 day')
+      RETURNING cycle_key
+    `;
+    const expiredOrders = await transaction`
+      DELETE FROM spot_orders
+      WHERE is_open = FALSE
+        AND COALESCE(executed_at, updated_at, created_at) < NOW() - (${retention.orderRetentionDays} * INTERVAL '1 day')
+      RETURNING order_id
+    `;
+    const expiredMacro = await transaction`
+      DELETE FROM macro_snapshots
+      WHERE source_observed_at < NOW() - (${retention.macroRetentionDays} * INTERVAL '1 day')
+      RETURNING source_observed_at
+    `;
+    const expiredDaily = await transaction`
+      DELETE FROM daily_portfolio_snapshots
+      WHERE local_date < (CURRENT_DATE - ${retention.dailyHistoryRetentionDays}::int)
+      RETURNING local_date
+    `;
+    return {
+      archivedDailySnapshots,
+      expiredRuns: expiredRuns.length,
+      expiredOrders: expiredOrders.length,
+      expiredMacroSnapshots: expiredMacro.length,
+      expiredDailySnapshots: expiredDaily.length,
+      staleRunsClosed: staleRuns.length,
+    };
+  });
+}
+
 export async function getDailyPortfolioHistory(
   days = 90,
   timeZone: "UTC" | "Europe/Istanbul" = "UTC",
@@ -291,7 +397,16 @@ export async function getDailyPortfolioHistory(
   await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
-    WITH localized_snapshots AS (
+    WITH candidate_snapshots AS (
+      SELECT
+        local_date,
+        captured_at,
+        total_portfolio_usdt,
+        prices
+      FROM daily_portfolio_snapshots
+      WHERE time_zone = ${timeZone}
+        AND local_date >= ((NOW() AT TIME ZONE ${timeZone})::date - ${days}::int)
+      UNION ALL
       SELECT
         (captured_at AT TIME ZONE ${timeZone})::date AS local_date,
         captured_at,
@@ -299,6 +414,15 @@ export async function getDailyPortfolioHistory(
         prices
       FROM portfolio_snapshots
       WHERE captured_at >= NOW() - (${days} * INTERVAL '1 day')
+    ),
+    localized_snapshots AS (
+      SELECT DISTINCT ON (local_date)
+        local_date,
+        captured_at,
+        total_portfolio_usdt,
+        prices
+      FROM candidate_snapshots
+      ORDER BY local_date, captured_at DESC
     )
     SELECT DISTINCT ON (local_date)
       local_date::text AS date,

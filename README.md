@@ -25,7 +25,9 @@ Bot haber, sosyal medya yorumu veya serbest metin piyasa tahmini kullanmaz. Her 
 
 Teknik göstergeler yalnızca kapanmış mumlardan hesaplanır. Ticker ve emir defteri için Bybit kaynak zamanları, son kapanmış 15 dakikalık mum zamanı ve yerel toplama zamanı ayrı tutulur; bayat veri emirden önce reddedilir. Jev ayrıca pozisyonun elde olup olmadığını, doğrulanabildiğinde ortalama maliyeti/PnL'yi, son işlem zamanını, kullanıcıya özel spot komisyonunu ve 24 saatlik portföy riskini görür.
 
-Uygulama bu ölçümlerden deterministik olarak `bull_trend`, `bear_trend`, `range` veya `transition` rejimi ile ölçülebilir bir Mamis sentiment evresi üretir. Jev ham sayılar yerine semantik durumu; yön, devam, setup kalitesi, likidite, düzensizlik ve pozisyon azaltma şeklinde atomik tipli sorularla değerlendirir. Kod bu yargılardan long-only hedef portföy ağırlığı üretir; hedef ile mevcut ağırlık arasındaki fark deadband dışındaysa `buy | sell`, aksi halde `hold` oluşur. Jev hesap makinesi veya sohbet belleği olarak kullanılmaz; hesaplamalar, kalıcı geçmiş, portföy hedefi ve emir izinleri kodun sorumluluğundadır.
+Uygulama bu ölçümlerden deterministik olarak `bull_trend`, `bear_trend`, `range`, `compression` veya `transition` rejimi üretir. Önceki 24 saat, 3 gün ve 7 günlük fiyat kanallarındaki konum; önceki tepe/dibe ATR uzaklığı, 12 saatlik swing yapısı, haftalık Bollinger genişliği yüzdeliği ve mum gövde/fitil yapısı ayrıca hesaplanır. Mamis evresi ve günlük makro veriler doğrudan hedef ağırlık çarpanı değil, ikincil bağlamdır.
+
+Jev her varlık için rejim, en uygun setup (`trend_pullback`, `upside_breakout`, `range_reversion`, `bear_rebound`, `reduce`, `none`), giriş hazırlığı, yön, devam, false-breakout riski, dönüş teyidi, setup kalitesi ve likiditeyi atomik tipli sorularla değerlendirir. Portföy düzeyinde en iyi sermaye hedefini ve toplam risk bütçesini seçer. Kod yalnızca yapı kapısından geçen ve komisyon, spread ve kayma sonrası pozitif beklenen değere sahip setup'ları boyutlandırır; hedef ile mevcut ağırlık arasındaki fark deadband dışındaysa `buy | sell`, aksi halde `hold` oluşur.
 
 Düşüş rejiminde yeni alım ancak kısa dönem momentum, aşırı satış, hacim ve emir defteri talebini birleştiren rebound skoru güvenlik eşiğini aşarsa yürütülebilir. Satışlar sermayeyi USDT'ye taşıyabilir. Yatay rejimde ise z-skoru ve bant konumu ortalamaya dönüş fırsatlarının değerlendirilmesini sağlar. Tüm alımlar USDT rezervi, tek-varlık yoğunlaşması, spread ve volatilite kapılarından geçer; boyut gerçekleşen oynaklığa göre küçültülür.
 
@@ -62,6 +64,7 @@ Jev yalnızca tipli bir karar üretir. Emir miktarı, izin verilen varlıklar, m
 - Risk azaltan satışlar önce yürütülür; bağımsız Jev alımları fırsat gücüne göre sıralanır ve bir çevrimdeki yeni pozisyon sayısı sınırlandırılır.
 - Cron endpoint’i yalnızca Vercel ortamındaki `CRON_SECRET` ile eşleşen Bearer başlığıyla çalışır.
 - API anahtarları hiçbir zaman istemci paketine veya dashboard cevabına eklenmez.
+- Her sahip olunan 15 dakikalık turun sonunda bakım çalışır: günlük sermaye kayıtları UTC ve Europe/Istanbul bazında uzun vadeli arşivlenir; ayrıntılı tur JSON'ları, tamamlanmış eski emirler ve makro snapshot'lar yapılandırılabilir saklama sürelerine göre temizlenir. Açık emirler cleanup tarafından silinmez.
 
 ### Dashboard
 
@@ -89,6 +92,12 @@ TR/EN dashboard aşağıdakileri gösterir:
 
 Proje Vercel Hobby ile deploy edilebilmesi için yerleşik Vercel Cron tanımı içermez. cron-job.org her saatin `00, 15, 30, 45` dakikalarında `GET https://<uygulama-adresi>/api/cron` çağrısı yapar ve Vercel'deki `CRON_SECRET` ile aynı değeri `Authorization: Bearer <secret>` başlığında gönderir. Vercel fonksiyonları, Bybit'in engellediği varsayılan ABD çıkışı yerine `fra1` Frankfurt bölgesinde çalışır.
 
+### Yerel tarihsel simülasyon
+
+Üretim tablolarından ayrılmış `simulation` PostgreSQL şeması, son 48 saatin 192 adet 15 dakikalık karar çevrimini aynı Jev, hedef tahsis ve risk fonksiyonlarından geçirir. Göstergeler yalnız karar anında kapanmış mumlardan hesaplanır; sanal emir bir sonraki 15 dakikalık mumun açılışında ters yönlü kayma ve taker ücretiyle gerçekleşir. Geçmiş order-book REST verisi bulunmadığı için nötr proxy açıkça etiketlenir, geçmiş trade-flow ise uydurulmadan `unavailable` gönderilir.
+
+`npm run simulation:setup` yerel şemayı hazırlar. `npm run backtest:smoke` tek Jev çağrılı uçtan uca testtir. Tam çalışma 192 model çağrısı yapacağı için önce `BACKTEST_CONFIRM_JEV_USAGE=true` ayarlanmalı, ardından `npm run backtest:2d` çalıştırılmalıdır. `npm run backtest:report` son raporu, `npm run backtest:inspect` ise eşik dağılımlarını ve maliyet sonrası ileri getiri tanısını gösterir. Simülasyon bağlantısı varsayılan olarak yalnız localhost kabul eder ve Vercel/Neon üretim veritabanına yazmaz.
+
 ### Sorumluluk reddi
 
 Bu yazılım Jev entegrasyonunu gösteren deneysel bir referans uygulamadır ve yatırım tavsiyesi değildir. Kripto varlık işlemleri önemli kayıp riski taşır. Demo Trading sonuçları gerçek piyasa performansını, likiditeyi veya kaymayı temsil etmeyebilir. Gerçek hesap kullanımı öncesinde bağımsız güvenlik, strateji, mevzuat ve risk değerlendirmesi yapılmalıdır. Proje sahipleri ve katkıda bulunanlar işlem kayıplarından sorumlu değildir.
@@ -114,7 +123,9 @@ The bot does not consume news, social commentary or free-form market forecasts. 
 
 Technical indicators use closed candles only. Bybit source times for ticker/order-book data, the latest closed 15-minute candle and local collection time are tracked separately; stale inputs fail closed. Jev also receives position ownership, verified cost basis/PnL when reconstructable, last-trade timing, account-specific spot fees and trailing 24-hour portfolio risk.
 
-Application code deterministically labels each asset as `bull_trend`, `bear_trend`, `range` or `transition` and derives a measurable Mamis sentiment phase. Jev receives semantic rather than raw numeric state and answers atomic typed judgments for direction, follow-through, setup quality, liquidity, disorder and position reduction. Code converts those judgments into long-only target portfolio weights; only target deltas outside a deadband become `buy | sell`, otherwise the result is `hold`. Calculations, persistent context, allocation targets and execution permissions remain in code.
+Application code derives `bull_trend`, `bear_trend`, `range`, `compression` or `transition` evidence. It also measures location inside prior 24-hour, 3-day and 7-day channels, ATR distance to structural levels, twelve-hour swing structure, weekly Bollinger-width percentile and closed-candle body/wick shape. Mamis and daily macro state remain secondary context rather than direct allocation multipliers.
+
+For each asset, Jev evaluates regime, the best setup (`trend_pullback`, `upside_breakout`, `range_reversion`, `bear_rebound`, `reduce`, `none`), entry readiness, direction, follow-through, false-breakout risk, reversal confirmation, setup quality and liquidity. At portfolio level it selects the preferred capital destination and gross risk budget. Deterministic code sizes only structure-qualified setups with positive expected value after fees, spread and slippage.
 
 Bear-regime buys require a separate rebound score combining short-horizon momentum, oversold statistics, volume and order-book demand. Sells may rotate capital into USDT. Range decisions can use statistical mean-reversion evidence. Every buy is additionally constrained by a USDT reserve, single-asset allocation cap, spread ceiling and volatility-scaled sizing.
 
@@ -142,6 +153,7 @@ Every successful cycle stores:
 - Risk-reduction sells run first; independent Jev buys are ranked and new exposure per cycle is capped.
 - The cron endpoint requires a Bearer header matching the `CRON_SECRET` stored in Vercel.
 - Secrets remain server-side and are never returned to the dashboard.
+- End-of-cycle maintenance archives daily equity in both UTC and Europe/Istanbul before expiring detailed run JSON, old completed orders and macro snapshots according to configurable retention periods. Open orders are never deleted by cleanup.
 
 ### Dashboard
 
@@ -150,6 +162,12 @@ The always-available TR/EN dashboard presents the daily USDT capital curve, asse
 ### Scheduler
 
 The repository does not include a native Vercel Cron definition, so it can deploy on Vercel Hobby. cron-job.org calls `GET https://<deployment-url>/api/cron` at minutes `00, 15, 30, 45` of every hour and sends the same secret stored in Vercel as `Authorization: Bearer <secret>`. Vercel Functions run in the `fra1` Frankfurt region instead of the default US region blocked by Bybit.
+
+### Local historical simulation
+
+A separate PostgreSQL `simulation` schema replays the last 48 hours as 192 fifteen-minute decisions through the same Jev, target-allocation and risk functions used by production. Indicators use only candles already closed at the decision boundary; virtual fills use the next candle open with adverse slippage and taker fees. Historical REST order-book data is unavailable, so a neutral proxy is explicitly labeled, while missing historical trade flow remains `unavailable` instead of being invented.
+
+Run `npm run simulation:setup`, then use `npm run backtest:smoke` for a one-call end-to-end check. A full run makes 192 model calls and therefore requires `BACKTEST_CONFIRM_JEV_USAGE=true` before `npm run backtest:2d`. Use `npm run backtest:report` for the latest portfolio report and `npm run backtest:inspect` for threshold distributions and cost-adjusted forward-signal diagnostics. The simulation connection accepts localhost by default and does not write to the Vercel/Neon production database.
 
 ### Disclaimer
 

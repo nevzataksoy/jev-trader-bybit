@@ -42,11 +42,21 @@ export function getTradingConfig() {
     minPolicyConfidence: numberFromEnv("MIN_POLICY_CONFIDENCE", 0.58, 0, 1),
     minSellConfidence: numberFromEnv("MIN_SELL_CONFIDENCE", 0.60, 0, 1),
     minDirectionalEdge: numberFromEnv("MIN_DIRECTIONAL_EDGE", 0.15, 0, 0.9),
-    minSetupScore: numberFromEnv("MIN_SETUP_SCORE", 1.5, 0, 3),
+    minSetupScore: numberFromEnv("MIN_SETUP_SCORE", 2, 0, 4),
+    minExpectedNetEdgePct: numberFromEnv("MIN_EXPECTED_NET_EDGE_PCT", 0.05, 0, 5),
     minLiquidityProbability: numberFromEnv("MIN_LIQUIDITY_PROBABILITY", 0.55, 0, 1),
     disorderlyProbability: numberFromEnv("DISORDERLY_PROBABILITY", 0.70, 0, 1),
     cutPositionProbability: numberFromEnv("CUT_POSITION_PROBABILITY", 0.72, 0, 1),
     macroCacheHours: numberFromEnv("MACRO_CACHE_HOURS", 6, 1, 24),
+  };
+}
+
+export function getDatabaseMaintenanceConfig() {
+  return {
+    detailedRunRetentionDays: Math.round(numberFromEnv("BOT_RUN_RETENTION_DAYS", 45, 7, 365)),
+    dailyHistoryRetentionDays: Math.round(numberFromEnv("DAILY_HISTORY_RETENTION_DAYS", 1_825, 90, 3_650)),
+    orderRetentionDays: Math.round(numberFromEnv("ORDER_HISTORY_RETENTION_DAYS", 730, 90, 3_650)),
+    macroRetentionDays: Math.round(numberFromEnv("MACRO_HISTORY_RETENTION_DAYS", 730, 90, 3_650)),
   };
 }
 

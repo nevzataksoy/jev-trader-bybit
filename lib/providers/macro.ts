@@ -6,7 +6,7 @@ import type {
 
 const SERIES: MacroSeriesId[] = ["DGS1", "DGS2", "DGS10", "DFII10", "T10YIE"];
 
-type FredRow = { date: string } & Partial<Record<MacroSeriesId, number>>;
+export type FredRow = { date: string } & Partial<Record<MacroSeriesId, number>>;
 
 function round(value: number, digits = 3) {
   return Number(value.toFixed(digits));

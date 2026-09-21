@@ -26,6 +26,7 @@ const config = {
   minSellConfidence: 0.6,
   minDirectionalEdge: 0.15,
   minSetupScore: 1.5,
+  minExpectedNetEdgePct: 0.05,
   minLiquidityProbability: 0.55,
   disorderlyProbability: 0.7,
   cutPositionProbability: 0.72,
@@ -78,11 +79,17 @@ function decision(action: JevDecision["action"], confidence = 0.8): JevDecision 
   return {
     asset: "BTC", action, confidence, probabilities: { buy: 0.8, hold: 0.1, sell: 0.1 },
     currentAllocationPct: 20, targetAllocationPct: target, rebalanceDeltaPct: target - 20,
+    selectedSetup: "trend_pullback", entryReadiness: "enter_now", expectedNetEdgePct: 0.5,
+    opportunityScore: 0.7, grossRiskBudgetPct: 80,
     policyReason: "test",
     judgments: {
+      regime: { choice: "uptrend", confidence: 0.8, probabilities: { uptrend: 0.8, downtrend: 0.05, range: 0.05, compression: 0.05, transition: 0.05 } },
+      best_setup: { choice: "trend_pullback", confidence: 0.8, probabilities: { trend_pullback: 0.8, upside_breakout: 0.05, range_reversion: 0.03, bear_rebound: 0.02, reduce: 0.05, none: 0.05 } },
+      entry_readiness: { choice: "enter_now", confidence: 0.8, probabilities: { enter_now: 0.8, wait_close: 0.05, wait_retest: 0.1, no_entry: 0.05 } },
       direction: { choice: "up", confidence: 0.8, probabilities: { up: 0.8, down: 0.1, unclear: 0.1 } },
       follow_through: { choice: "continuation", confidence: 0.8, probabilities: { continuation: 0.8, reversal: 0.1, no_pattern: 0.1 } },
       setup_quality: { score: 2.5, confidence: 0.8, probabilities: { 0: 0.05, 1: 0.1, 2: 0.25, 3: 0.6 } },
+      false_breakout: 0.1, reversal_confirmation: 0.7,
       liquidity_ok: 0.9, disorderly: 0.1, cut_position: action === "sell" ? 0.8 : 0.1,
     },
   };

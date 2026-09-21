@@ -4,6 +4,7 @@ import { buildPortfolioDecisions } from "./policy";
 import type {
   FeeRate,
   JevAssetJudgments,
+  JevPortfolioJudgments,
   JevResponse,
   MacroState,
   MarketIndicatorState,
@@ -54,12 +55,18 @@ function participationPhrase(market: MarketIndicatorState) {
 }
 
 function orderFlowPhrase(market: MarketIndicatorState) {
-  const flow = market.trade_flow_imbalance ?? market.orderbook_imbalance;
-  if (flow >= 0.2) return "recent executable flow and resting liquidity lean strongly toward buyers";
-  if (flow >= 0.07) return "recent executable flow and resting liquidity lean toward buyers";
-  if (flow <= -0.2) return "recent executable flow and resting liquidity lean strongly toward sellers";
-  if (flow <= -0.07) return "recent executable flow and resting liquidity lean toward sellers";
-  return "recent executable flow and resting liquidity are balanced";
+  const hasUsableTradeWindow = market.trade_flow_imbalance !== null
+    && market.trade_flow_window_seconds !== null
+    && market.trade_flow_window_seconds >= 60;
+  const flow = hasUsableTradeWindow ? market.trade_flow_imbalance! : market.orderbook_imbalance;
+  const source = hasUsableTradeWindow
+    ? "time-covered executable flow"
+    : "a single resting-liquidity snapshot, which is secondary evidence";
+  if (flow >= 0.2) return `${source} leans strongly toward buyers`;
+  if (flow >= 0.07) return `${source} leans toward buyers`;
+  if (flow <= -0.2) return `${source} leans strongly toward sellers`;
+  if (flow <= -0.07) return `${source} leans toward sellers`;
+  return `${source} is balanced`;
 }
 
 function costPhrase(market: MarketIndicatorState, fee: FeeRate, estimatedSlippagePct: number) {
@@ -94,6 +101,22 @@ function derivativesPhrase(market: MarketIndicatorState) {
       ? "short positioning is relatively crowded"
       : "funding is not extreme";
   return `${positioning}; ${funding}`;
+}
+
+function channelPhrase(position: number) {
+  if (position > 1) return "above the prior channel high";
+  if (position >= 0.85) return "near the upper edge of the prior channel";
+  if (position >= 0.6) return "in the upper half of the prior channel";
+  if (position >= 0.4) return "near the middle of the prior channel";
+  if (position >= 0.15) return "in the lower half of the prior channel";
+  if (position >= 0) return "near the lower edge of the prior channel";
+  return "below the prior channel low";
+}
+
+function volatilityStructurePhrase(market: MarketIndicatorState) {
+  if (market.bb_width_percentile_7d <= 0.2) return "volatility is compressed versus the last week";
+  if (market.bb_width_percentile_7d >= 0.8) return "volatility is expanded versus the last week";
+  return "volatility is near its weekly middle range";
 }
 
 export function buildSemanticState(state: JevTradingState) {
@@ -152,6 +175,23 @@ export function buildSemanticState(state: JevTradingState) {
             : market.distance_vwap_24h_pct <= -market.atr_14_pct
               ? "well below the recent volume-weighted price"
               : "near the recent volume-weighted price",
+          market_structure: {
+            prior_24h_channel: channelPhrase(market.channel_24h_position),
+            prior_3d_channel: channelPhrase(market.channel_3d_position),
+            prior_7d_channel: channelPhrase(market.channel_7d_position),
+            twelve_hour_swings: market.structure_12h,
+            volatility_state: volatilityStructurePhrase(market),
+            breakout_participation: market.channel_24h_position >= 0.9 && market.volume_ratio_20 >= 1
+              ? "an upper-edge test has at least normal participation"
+              : market.channel_24h_position >= 0.9
+                ? "an upper-edge test lacks normal participation"
+                : "price is not testing the upper edge",
+            rejection_shape: market.upper_wick_atr > 0.6
+              ? "the latest closed candle shows material upper rejection"
+              : market.lower_wick_atr > 0.6
+                ? "the latest closed candle shows material lower rejection"
+                : "the latest closed candle has no dominant rejection wick",
+          },
         },
         activity: {
           participation: participationPhrase(market),
@@ -160,8 +200,12 @@ export function buildSemanticState(state: JevTradingState) {
             : "downside volatility is not dominant",
         },
         liquidity: {
-          order_flow: orderFlowPhrase(market),
-          depth: market.depth_ratio >= 1.4
+          order_flow: market.data_provenance?.trade_flow === "unavailable"
+            ? "historical trade-flow data is unavailable and must not be inferred"
+            : orderFlowPhrase(market),
+          depth: market.data_provenance?.orderbook === "historical_proxy"
+            ? "historical order-book depth is unavailable; a conservative neutral proxy is used"
+            : market.depth_ratio >= 1.4
             ? "visible depth is weighted toward bids"
             : market.depth_ratio <= 0.7
               ? "visible depth is weighted toward asks"
@@ -192,6 +236,27 @@ function directionQuestion(asset: TradeAsset) {
   );
 }
 
+function regimeQuestion(asset: TradeAsset) {
+  return choice(
+    { objective: `Classify the executable market regime for ${asset}/USDT now.`, constraints: ["Use multi-timeframe channel, swing, trend-strength and volatility evidence together.", "Treat the deterministic regime label as evidence, not an instruction."] },
+    { uptrend: "Persistent higher structure favors trend-following long exposure.", downtrend: "Persistent lower structure favors USDT or a strictly confirmed tactical rebound.", range: "Price is rotating between stable boundaries without persistent direction.", compression: "Volatility is unusually compressed and direction needs breakout confirmation.", transition: "The structure is changing or materially conflicted." },
+  );
+}
+
+function bestSetupQuestion(asset: TradeAsset) {
+  return choice(
+    { objective: `Select the single best spot-trading setup for ${asset}/USDT at this decision boundary.`, constraints: ["Select none when no setup has positive, executable evidence.", "Range reversion belongs near a statistically supported lower boundary, not near the upper boundary.", "An upside breakout requires participation and acceptable false-breakout risk.", "Bear rebound is tactical and requires reversal confirmation.", "Select reduce only for held exposure that should move toward USDT."] },
+    { trend_pullback: "Buy an orderly pullback inside an intact uptrend.", upside_breakout: "Buy a confirmed break or acceptance above resistance.", range_reversion: "Buy near a supported range low for a move back toward the mean.", bear_rebound: "Buy a confirmed tactical rebound inside a broader downtrend.", reduce: "Reduce existing exposure toward USDT.", none: "No setup is executable now." },
+  );
+}
+
+function entryReadinessQuestion(asset: TradeAsset) {
+  return choice(
+    { objective: `Judge entry readiness for the best available ${asset}/USDT setup.`, constraints: ["enter_now requires the currently closed candles to supply confirmation.", "Do not use enter_now merely because price moved."] },
+    { enter_now: "The setup is confirmed at this closed-candle boundary.", wait_close: "Another candle close is needed for confirmation.", wait_retest: "A breakout or reversal needs a retest before entry.", no_entry: "There is no acceptable entry." },
+  );
+}
+
 function followThroughQuestion(asset: TradeAsset) {
   return choice(
     { objective: `Judge whether the currently visible move in ${asset}/USDT is likely to persist.`, constraints: ["Separate persistence from direction.", "Use no_pattern when there is no coherent move to extend or reverse."] },
@@ -201,14 +266,28 @@ function followThroughQuestion(asset: TradeAsset) {
 
 function setupQualityQuestion(asset: TradeAsset) {
   return score(
-    { objective: `Score the quality of the directional setup for ${asset}/USDT.`, constraints: ["Score agreement and tradability, not excitement.", "Missing optional derivatives data alone does not make XAUT untradeable."] },
-    ["No usable setup: evidence conflicts, is stale in meaning, or costs dominate.", "Weak setup: a directional idea exists but lacks confirmation or clean execution conditions.", "Coherent setup: several independent signals agree and costs appear manageable.", "Exceptional setup: direction, follow-through, participation and liquidity align without material contradiction."],
+    { objective: `Score the quality of the directional setup for ${asset}/USDT.`, constraints: ["Score agreement and tradability, not excitement.", "Missing optional derivatives data alone does not make XAUT untradeable.", "In explicitly labeled historical simulation state, missing historical microstructure alone is uncertainty rather than proof of a bad setup; use the supplied conservative cost proxy and participation evidence."] },
+    ["No usable setup: evidence conflicts, is stale in meaning, or costs dominate.", "Weak setup: a directional idea exists but lacks confirmation or clean execution conditions.", "Developing setup: structure exists but timing or participation still needs confirmation.", "Coherent setup: independent structure, timing and execution evidence agree.", "Exceptional setup: structure, follow-through, participation and liquidity align without material contradiction."],
+  );
+}
+
+function falseBreakoutQuestion(asset: TradeAsset) {
+  return noul(
+    { objective: `Is an upside break or upper-channel test in ${asset}/USDT likely to be a false breakout?`, constraints: ["Use closed-candle acceptance, participation, wick rejection and broader structure.", "Return uncertainty rather than inventing a breakout when price is not testing resistance."] },
+    { true: "Breakout failure risk is material.", false: "There is adequate evidence against an immediate false breakout." },
+  );
+}
+
+function reversalConfirmationQuestion(asset: TradeAsset) {
+  return noul(
+    { objective: `Is an upward reversal in ${asset}/USDT sufficiently confirmed for a tactical long entry?`, constraints: ["Require more than oversold status.", "Use momentum turn, structure, participation and lower-bound reaction together."] },
+    { true: "The reversal has multi-factor confirmation.", false: "The reversal is absent or not confirmed." },
   );
 }
 
 function liquidityQuestion(asset: TradeAsset) {
   return noul(
-    { objective: `Is ${asset}/USDT liquid enough to change spot exposure now?`, constraints: ["Consider spread, depth, recent flow and cost relative to a typical move."] },
+    { objective: `Is ${asset}/USDT liquid enough to change spot exposure now?`, constraints: ["Consider spread, depth, recent flow and cost relative to a typical move.", "When historical provenance explicitly says order-book or trade-flow history is unavailable, do not treat absence alone as illiquidity; judge the conservative spread, turnover, volatility and cost proxy that is supplied."] },
     { true: "Normal-size execution appears feasible.", false: "New exposure should be blocked because execution quality is poor." },
   );
 }
@@ -227,37 +306,77 @@ function cutPositionQuestion(asset: TradeAsset) {
   );
 }
 
+function preferredDestinationQuestion() {
+  return choice(
+    { objective: "Select the best destination for marginal portfolio capital over the next one to four fifteen-minute cycles.", constraints: ["Compare BTC, ETH and XAUT after costs.", "Select USDT when no asset has a sufficiently separated executable opportunity."] },
+    { BTC: "BTC has the best executable risk-adjusted setup.", ETH: "ETH has the best executable risk-adjusted setup.", XAUT: "XAUT has the best executable risk-adjusted setup.", USDT: "Cash preservation is preferable to all available asset setups." },
+  );
+}
+
+function grossRiskBudgetQuestion() {
+  return choice(
+    { objective: "Choose the appropriate gross long-only spot risk budget for the portfolio now.", constraints: ["This controls total BTC, ETH and XAUT exposure, not trade frequency.", "Use zero in disorderly conditions or when all setups are unqualified."] },
+    { zero: "Hold risk capital in USDT.", low: "Use a small tactical exposure budget.", medium: "Use a normal but selective exposure budget.", high: "Use most of the allowed exposure budget because opportunities are broad and coherent." },
+  );
+}
+
+function opportunitySeparationQuestion() {
+  return score(
+    { objective: "Score how clearly the best asset opportunity exceeds the alternatives after execution costs.", constraints: ["Score relative separation, not absolute excitement.", "A high score should be rare and supported by independent evidence."] },
+    ["No qualified asset opportunity.", "Opportunities are weak or nearly tied.", "One asset has a meaningful advantage.", "One asset has a large, unusually coherent advantage."],
+  );
+}
+
 export async function evaluateTradingState(state: JevTradingState): Promise<JevResponse> {
   const apiKey = process.env.TYPESAFE_API_KEY?.trim() || process.env.JEV_API_KEY?.trim();
   if (!apiKey) throw new Error("TYPESAFE_API_KEY is not configured.");
   const model = process.env.JEV_MODEL_NAME?.trim() || "jev-1.13.0";
   const client = new TypeSafeClient({ apiKey, defaultModel: model, timeout: 10_000, retry: { maxRetries: 1 }, logLevel: "warn" });
   const questions = {
-    btc_direction: directionQuestion("BTC"), btc_follow_through: followThroughQuestion("BTC"), btc_setup_quality: setupQualityQuestion("BTC"), btc_liquidity_ok: liquidityQuestion("BTC"), btc_disorderly: disorderlyQuestion("BTC"), btc_cut_position: cutPositionQuestion("BTC"),
-    eth_direction: directionQuestion("ETH"), eth_follow_through: followThroughQuestion("ETH"), eth_setup_quality: setupQualityQuestion("ETH"), eth_liquidity_ok: liquidityQuestion("ETH"), eth_disorderly: disorderlyQuestion("ETH"), eth_cut_position: cutPositionQuestion("ETH"),
-    xaut_direction: directionQuestion("XAUT"), xaut_follow_through: followThroughQuestion("XAUT"), xaut_setup_quality: setupQualityQuestion("XAUT"), xaut_liquidity_ok: liquidityQuestion("XAUT"), xaut_disorderly: disorderlyQuestion("XAUT"), xaut_cut_position: cutPositionQuestion("XAUT"),
+    btc_regime: regimeQuestion("BTC"), btc_best_setup: bestSetupQuestion("BTC"), btc_entry_readiness: entryReadinessQuestion("BTC"), btc_direction: directionQuestion("BTC"), btc_follow_through: followThroughQuestion("BTC"), btc_setup_quality: setupQualityQuestion("BTC"), btc_false_breakout: falseBreakoutQuestion("BTC"), btc_reversal_confirmation: reversalConfirmationQuestion("BTC"), btc_liquidity_ok: liquidityQuestion("BTC"), btc_disorderly: disorderlyQuestion("BTC"), btc_cut_position: cutPositionQuestion("BTC"),
+    eth_regime: regimeQuestion("ETH"), eth_best_setup: bestSetupQuestion("ETH"), eth_entry_readiness: entryReadinessQuestion("ETH"), eth_direction: directionQuestion("ETH"), eth_follow_through: followThroughQuestion("ETH"), eth_setup_quality: setupQualityQuestion("ETH"), eth_false_breakout: falseBreakoutQuestion("ETH"), eth_reversal_confirmation: reversalConfirmationQuestion("ETH"), eth_liquidity_ok: liquidityQuestion("ETH"), eth_disorderly: disorderlyQuestion("ETH"), eth_cut_position: cutPositionQuestion("ETH"),
+    xaut_regime: regimeQuestion("XAUT"), xaut_best_setup: bestSetupQuestion("XAUT"), xaut_entry_readiness: entryReadinessQuestion("XAUT"), xaut_direction: directionQuestion("XAUT"), xaut_follow_through: followThroughQuestion("XAUT"), xaut_setup_quality: setupQualityQuestion("XAUT"), xaut_false_breakout: falseBreakoutQuestion("XAUT"), xaut_reversal_confirmation: reversalConfirmationQuestion("XAUT"), xaut_liquidity_ok: liquidityQuestion("XAUT"), xaut_disorderly: disorderlyQuestion("XAUT"), xaut_cut_position: cutPositionQuestion("XAUT"),
+    preferred_destination: preferredDestinationQuestion(), gross_risk_budget: grossRiskBudgetQuestion(), opportunity_separation: opportunitySeparationQuestion(),
   } as const;
   const response = await client.systemOne({ model, state: buildSemanticState(state) as unknown as EntryType, questions });
   const answerMap: Record<TradeAsset, JevAssetJudgments> = {
     BTC: {
+      regime: { choice: response.answers.btc_regime.choice, confidence: response.answers.btc_regime.confidence, probabilities: { ...response.answers.btc_regime.probabilities } },
+      best_setup: { choice: response.answers.btc_best_setup.choice, confidence: response.answers.btc_best_setup.confidence, probabilities: { ...response.answers.btc_best_setup.probabilities } },
+      entry_readiness: { choice: response.answers.btc_entry_readiness.choice, confidence: response.answers.btc_entry_readiness.confidence, probabilities: { ...response.answers.btc_entry_readiness.probabilities } },
       direction: { choice: response.answers.btc_direction.choice, confidence: response.answers.btc_direction.confidence, probabilities: { ...response.answers.btc_direction.probabilities } },
       follow_through: { choice: response.answers.btc_follow_through.choice, confidence: response.answers.btc_follow_through.confidence, probabilities: { ...response.answers.btc_follow_through.probabilities } },
       setup_quality: { score: response.answers.btc_setup_quality.score, confidence: response.answers.btc_setup_quality.confidence, probabilities: { ...response.answers.btc_setup_quality.probabilities } },
+      false_breakout: response.answers.btc_false_breakout.noul, reversal_confirmation: response.answers.btc_reversal_confirmation.noul,
       liquidity_ok: response.answers.btc_liquidity_ok.noul, disorderly: response.answers.btc_disorderly.noul, cut_position: response.answers.btc_cut_position.noul,
     },
     ETH: {
+      regime: { choice: response.answers.eth_regime.choice, confidence: response.answers.eth_regime.confidence, probabilities: { ...response.answers.eth_regime.probabilities } },
+      best_setup: { choice: response.answers.eth_best_setup.choice, confidence: response.answers.eth_best_setup.confidence, probabilities: { ...response.answers.eth_best_setup.probabilities } },
+      entry_readiness: { choice: response.answers.eth_entry_readiness.choice, confidence: response.answers.eth_entry_readiness.confidence, probabilities: { ...response.answers.eth_entry_readiness.probabilities } },
       direction: { choice: response.answers.eth_direction.choice, confidence: response.answers.eth_direction.confidence, probabilities: { ...response.answers.eth_direction.probabilities } },
       follow_through: { choice: response.answers.eth_follow_through.choice, confidence: response.answers.eth_follow_through.confidence, probabilities: { ...response.answers.eth_follow_through.probabilities } },
       setup_quality: { score: response.answers.eth_setup_quality.score, confidence: response.answers.eth_setup_quality.confidence, probabilities: { ...response.answers.eth_setup_quality.probabilities } },
+      false_breakout: response.answers.eth_false_breakout.noul, reversal_confirmation: response.answers.eth_reversal_confirmation.noul,
       liquidity_ok: response.answers.eth_liquidity_ok.noul, disorderly: response.answers.eth_disorderly.noul, cut_position: response.answers.eth_cut_position.noul,
     },
     XAUT: {
+      regime: { choice: response.answers.xaut_regime.choice, confidence: response.answers.xaut_regime.confidence, probabilities: { ...response.answers.xaut_regime.probabilities } },
+      best_setup: { choice: response.answers.xaut_best_setup.choice, confidence: response.answers.xaut_best_setup.confidence, probabilities: { ...response.answers.xaut_best_setup.probabilities } },
+      entry_readiness: { choice: response.answers.xaut_entry_readiness.choice, confidence: response.answers.xaut_entry_readiness.confidence, probabilities: { ...response.answers.xaut_entry_readiness.probabilities } },
       direction: { choice: response.answers.xaut_direction.choice, confidence: response.answers.xaut_direction.confidence, probabilities: { ...response.answers.xaut_direction.probabilities } },
       follow_through: { choice: response.answers.xaut_follow_through.choice, confidence: response.answers.xaut_follow_through.confidence, probabilities: { ...response.answers.xaut_follow_through.probabilities } },
       setup_quality: { score: response.answers.xaut_setup_quality.score, confidence: response.answers.xaut_setup_quality.confidence, probabilities: { ...response.answers.xaut_setup_quality.probabilities } },
+      false_breakout: response.answers.xaut_false_breakout.noul, reversal_confirmation: response.answers.xaut_reversal_confirmation.noul,
       liquidity_ok: response.answers.xaut_liquidity_ok.noul, disorderly: response.answers.xaut_disorderly.noul, cut_position: response.answers.xaut_cut_position.noul,
     },
   };
-  const decisions = buildPortfolioDecisions(answerMap, state.indicators, state.positions, state.macro, getTradingConfig());
-  return { model: response.model, decisions, usage: response.usage };
+  const portfolioJudgments: JevPortfolioJudgments = {
+    preferred_destination: { choice: response.answers.preferred_destination.choice, confidence: response.answers.preferred_destination.confidence, probabilities: { ...response.answers.preferred_destination.probabilities } },
+    gross_risk_budget: { choice: response.answers.gross_risk_budget.choice, confidence: response.answers.gross_risk_budget.confidence, probabilities: { ...response.answers.gross_risk_budget.probabilities } },
+    opportunity_separation: { score: response.answers.opportunity_separation.score, confidence: response.answers.opportunity_separation.confidence, probabilities: { ...response.answers.opportunity_separation.probabilities } },
+  };
+  const feePctByAsset = Object.fromEntries((Object.keys(state.fees) as TradeAsset[]).map((asset) => [asset, state.fees[asset].taker_fee_pct])) as Record<TradeAsset, number>;
+  const decisions = buildPortfolioDecisions(answerMap, portfolioJudgments, state.indicators, state.positions, state.macro, feePctByAsset, getTradingConfig());
+  return { model: response.model, decisions, portfolioJudgments, usage: response.usage };
 }

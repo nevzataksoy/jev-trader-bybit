@@ -49,9 +49,19 @@ CREATE TABLE IF NOT EXISTS macro_snapshots (
   state JSONB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS daily_portfolio_snapshots (
+  time_zone TEXT NOT NULL,
+  local_date DATE NOT NULL,
+  captured_at TIMESTAMPTZ NOT NULL,
+  total_portfolio_usdt NUMERIC(30, 10) NOT NULL,
+  prices JSONB NOT NULL,
+  PRIMARY KEY (time_zone, local_date)
+);
+
 CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC);
 CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS macro_snapshots_collected_idx ON macro_snapshots(collected_at DESC);
+CREATE INDEX IF NOT EXISTS daily_portfolio_snapshots_captured_idx ON daily_portfolio_snapshots(captured_at DESC);
 
 ALTER TABLE bot_runs ADD COLUMN IF NOT EXISTS decision_context JSONB;

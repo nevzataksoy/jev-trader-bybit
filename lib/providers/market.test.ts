@@ -11,10 +11,12 @@ import {
   calculateDownsideVolatility,
   calculateReturnStreak,
   calculateTrendEfficiency,
+  buildTechnicalState,
   classifyMamisPhase,
   classifyRegime,
   parseClosedCandles,
   stabilizeMamisPhases,
+  type Candle,
 } from "./market";
 import type { MarketIndicatorState } from "../types";
 
@@ -61,6 +63,34 @@ describe("market indicators", () => {
       lastPrice: 100, ema9: 100, ema21: 100, ema50: 100, ema200: 100,
       return4h: 0, return24h: 0, adx: 12, plusDi: 15, minusDi: 15, priceZScore: 0,
     }).regime).toBe("range");
+    expect(classifyRegime({
+      lastPrice: 100, ema9: 100, ema21: 100, ema50: 100, ema200: 100,
+      return4h: 0, return24h: 0, adx: 12, plusDi: 15, minusDi: 15, priceZScore: 0,
+      bbWidthPercentile: 0.1,
+    }).regime).toBe("compression");
+  });
+
+  it("builds multi-timeframe channel and candle-structure features without using a future candle", () => {
+    const candles = (count: number, intervalMinutes: number): Candle[] => Array.from({ length: count }, (_, index) => {
+      const close = 100 + index * 0.05 + Math.sin(index / 7);
+      return {
+        startTime: index * intervalMinutes * 60_000,
+        closeTime: (index + 1) * intervalMinutes * 60_000,
+        open: close - 0.1,
+        high: close + 0.4,
+        low: close - 0.4,
+        close,
+        volume: 10 + index % 5,
+        turnover: close * (10 + index % 5),
+      };
+    });
+    const state = buildTechnicalState(candles(240, 15), candles(200, 60), candles(200, 240));
+    expect(state.channel_24h_high).toBeGreaterThan(state.channel_24h_low);
+    expect(state.channel_3d_high).toBeGreaterThan(state.channel_3d_low);
+    expect(state.channel_7d_high).toBeGreaterThan(state.channel_7d_low);
+    expect(state.bb_width_percentile_7d).toBeGreaterThanOrEqual(0);
+    expect(state.bb_width_percentile_7d).toBeLessThanOrEqual(1);
+    expect(["higher", "lower", "mixed"]).toContain(state.structure_12h);
   });
 
   it("computes finite 24-hour realized volatility from 15-minute returns", () => {
@@ -93,6 +123,7 @@ describe("market indicators", () => {
 
     const candles = parseClosedCandles(rows, 15, start + interval + 1);
     expect(candles).toHaveLength(1);
+    expect(candles[0].open).toBe(100);
     expect(candles[0].close).toBe(101);
     expect(candles[0].closeTime).toBe(start + interval);
   });

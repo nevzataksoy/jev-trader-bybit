@@ -5,7 +5,15 @@ export type Language = "tr" | "en";
 export type AssetId = (typeof ASSET_IDS)[number];
 export type TradeAsset = (typeof TRADE_ASSETS)[number];
 export type TradeAction = "buy" | "sell" | "hold";
-export type MarketRegime = "bull_trend" | "bear_trend" | "range" | "transition";
+export type MarketRegime = "bull_trend" | "bear_trend" | "range" | "compression" | "transition";
+export type TradingSetup =
+  | "trend_pullback"
+  | "upside_breakout"
+  | "range_reversion"
+  | "bear_rebound"
+  | "reduce"
+  | "none";
+export type EntryReadiness = "enter_now" | "wait_close" | "wait_retest" | "no_entry";
 export type MamisPhase =
   | "returning_confidence"
   | "buy_the_dip"
@@ -71,6 +79,23 @@ export interface MarketIndicatorState {
   up_fraction_4h: number;
   return_streak_15m: number;
   drawdown_20d_pct: number;
+  channel_24h_high: number;
+  channel_24h_low: number;
+  channel_24h_position: number;
+  channel_3d_high: number;
+  channel_3d_low: number;
+  channel_3d_position: number;
+  channel_7d_high: number;
+  channel_7d_low: number;
+  channel_7d_position: number;
+  distance_to_24h_high_atr: number;
+  distance_to_24h_low_atr: number;
+  breakout_24h_pct: number;
+  bb_width_percentile_7d: number;
+  candle_body_atr: number;
+  upper_wick_atr: number;
+  lower_wick_atr: number;
+  structure_12h: "higher" | "lower" | "mixed";
   adx_14: number;
   plus_di_14: number;
   minus_di_14: number;
@@ -84,6 +109,7 @@ export interface MarketIndicatorState {
   depth_ratio: number;
   taker_buy_ratio: number | null;
   trade_flow_imbalance: number | null;
+  trade_flow_window_seconds: number | null;
   open_interest_usdt_estimate: number | null;
   open_interest_change_1h_pct: number | null;
   open_interest_change_4h_pct: number | null;
@@ -92,6 +118,13 @@ export interface MarketIndicatorState {
   mamis_phase: MamisPhase;
   mamis_confidence: number;
   mamis_evidence: string[];
+  data_provenance?: {
+    candles: "live" | "historical_exact";
+    ticker: "live" | "historical_derived";
+    orderbook: "live" | "historical_proxy";
+    trade_flow: "live" | "historical_exact" | "unavailable";
+    derivatives: "live" | "historical_derived" | "unavailable";
+  };
 }
 
 export interface MacroSeriesObservation {
@@ -157,6 +190,7 @@ export interface DecisionContextSnapshot {
   fees: Record<TradeAsset, FeeRate>;
   portfolioRisk: PortfolioRiskContext;
   macro: MacroState | null;
+  portfolioJudgments?: JevPortfolioJudgments;
 }
 
 export interface JevChoiceJudgment<T extends string> {
@@ -166,6 +200,9 @@ export interface JevChoiceJudgment<T extends string> {
 }
 
 export interface JevAssetJudgments {
+  regime: JevChoiceJudgment<"uptrend" | "downtrend" | "range" | "compression" | "transition">;
+  best_setup: JevChoiceJudgment<TradingSetup>;
+  entry_readiness: JevChoiceJudgment<EntryReadiness>;
   direction: JevChoiceJudgment<"up" | "down" | "unclear">;
   follow_through: JevChoiceJudgment<"continuation" | "reversal" | "no_pattern">;
   setup_quality: {
@@ -173,9 +210,21 @@ export interface JevAssetJudgments {
     confidence: number;
     probabilities: Record<string, number>;
   };
+  false_breakout: number;
+  reversal_confirmation: number;
   liquidity_ok: number;
   disorderly: number;
   cut_position: number;
+}
+
+export interface JevPortfolioJudgments {
+  preferred_destination: JevChoiceJudgment<AssetId>;
+  gross_risk_budget: JevChoiceJudgment<"zero" | "low" | "medium" | "high">;
+  opportunity_separation: {
+    score: number;
+    confidence: number;
+    probabilities: Record<string, number>;
+  };
 }
 
 export interface JevDecision {
@@ -186,6 +235,11 @@ export interface JevDecision {
   currentAllocationPct: number;
   targetAllocationPct: number;
   rebalanceDeltaPct: number;
+  selectedSetup: TradingSetup;
+  entryReadiness: EntryReadiness;
+  expectedNetEdgePct: number;
+  opportunityScore: number;
+  grossRiskBudgetPct: number;
   policyReason: string;
   judgments: JevAssetJudgments;
 }
@@ -193,6 +247,7 @@ export interface JevDecision {
 export interface JevResponse {
   model: string;
   decisions: JevDecision[];
+  portfolioJudgments: JevPortfolioJudgments;
   usage: {
     input_tokens: number;
     output_tokens: number;

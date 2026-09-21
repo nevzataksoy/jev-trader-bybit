@@ -44,6 +44,10 @@ const copy = {
     targetAllocation: "Mevcut / hedef",
     direction: "Yön yargısı",
     setupQuality: "Setup kalitesi",
+    selectedSetup: "Seçilen setup",
+    entryReadiness: "Giriş hazırlığı",
+    expectedEdge: "Net beklenti",
+    riskBudget: "Risk bütçesi",
     macroContext: "Makro rejim",
     momentum: "15dk / 24sa getiri",
     volatility: "24sa gerçekleşen oynaklık",
@@ -58,9 +62,9 @@ const copy = {
     workflowSub: "Her 15 dakikada tekrarlanan, izlenebilir ve fail-closed karar hattı",
     steps: [
       ["01", "Hesabı oku", "USDT, BTC, ETH ve XAUT bakiyeleri ile spot açık emirler Demo Trading hesabından alınır."],
-      ["02", "Piyasayı ölç", "Yalnız kapanmış mumlardan trend, oynaklık ve hacim; kaynak zamanlı emir defteri ile türev konumlanması hesaplanır."],
-      ["03", "Jev ile değerlendir", "Jev semantik piyasa durumundan yön, devam, setup, likidite, düzensizlik ve risk azaltma yargıları üretir."],
-      ["04", "Hedefi uygula", "Kod yargıları hedef portföy ağırlığına çevirir; maliyet, cooldown, drawdown, açık emir, lot ve kayma kontrolleri geçilirse emir iletilir."],
+      ["02", "Piyasayı ölç", "Kapanmış mumlardan çok-zamanlı fiyat kanalları, swing yapısı, trend, oynaklık, hacim ve maliyet ölçülür."],
+      ["03", "Jev ile değerlendir", "Jev rejimi, setup türünü, giriş hazırlığını, false-breakout riskini, dönüş teyidini ve sermaye hedefini değerlendirir."],
+      ["04", "Hedefi uygula", "Kod yalnızca yapı ve maliyet-sonrası beklenti kapılarından geçen setup'ı hedef ağırlığa çevirir; kalan sermaye USDT'de tutulur."],
     ],
     orders: "Spot emir geçmişi",
     ordersSub: "Demo Trading spot emirleri; kalıcı kayıtlar Bybit’in yedi günlük saklama süresinden bağımsız tutulur.",
@@ -125,6 +129,10 @@ const copy = {
     targetAllocation: "Current / target",
     direction: "Direction judgment",
     setupQuality: "Setup quality",
+    selectedSetup: "Selected setup",
+    entryReadiness: "Entry readiness",
+    expectedEdge: "Net expectancy",
+    riskBudget: "Risk budget",
     macroContext: "Macro regime",
     momentum: "15m / 24h return",
     volatility: "24h realized volatility",
@@ -139,9 +147,9 @@ const copy = {
     workflowSub: "An observable, fail-closed decision pipeline repeated every 15 minutes",
     steps: [
       ["01", "Read the account", "USDT, BTC, ETH and XAUT balances plus spot open orders come from the Demo Trading account."],
-      ["02", "Measure the market", "Trend, volatility and volume use closed candles; source-timed order-book and derivatives positioning are also computed."],
-      ["03", "Evaluate with Jev", "Jev produces semantic judgments for direction, follow-through, setup quality, liquidity, disorder and risk reduction."],
-      ["04", "Apply the target", "Code converts judgments into target portfolio weights; orders still require cost, cooldown, drawdown, open-order, lot and slippage gates."],
+      ["02", "Measure the market", "Closed candles produce multi-timeframe channels, swing structure, trend, volatility, participation and execution-cost evidence."],
+      ["03", "Evaluate with Jev", "Jev judges regime, setup type, entry readiness, false-breakout risk, reversal confirmation and the preferred capital destination."],
+      ["04", "Apply the target", "Code converts only structure-qualified, cost-positive setups into target weights while residual capital remains in USDT."],
     ],
     orders: "Spot order history",
     ordersSub: "Demo Trading spot orders persisted independently of Bybit’s seven-day retention window.",
@@ -243,8 +251,8 @@ function actionLabel(action: TradeAction, lang: Language, position?: "flat" | "h
 
 function regimeLabel(regime: MarketRegime, lang: Language) {
   const labels = {
-    tr: { bull_trend: "Yükseliş trendi", bear_trend: "Düşüş trendi", range: "Yatay piyasa", transition: "Geçiş" },
-    en: { bull_trend: "Bull trend", bear_trend: "Bear trend", range: "Range", transition: "Transition" },
+    tr: { bull_trend: "Yükseliş trendi", bear_trend: "Düşüş trendi", range: "Yatay piyasa", compression: "Sıkışma", transition: "Geçiş" },
+    en: { bull_trend: "Bull trend", bear_trend: "Bear trend", range: "Range", compression: "Compression", transition: "Transition" },
   } as const;
   return labels[lang][regime];
 }
@@ -538,7 +546,11 @@ export default function Dashboard() {
                   {decision.judgments && (
                     <div className="market-state-row">
                       <span><small>{t.direction}</small><b>{decision.judgments.direction.choice} · {Math.round(decision.judgments.direction.confidence * 100)}%</b></span>
-                      <span><small>{t.setupQuality}</small><b>{decision.judgments.setup_quality.score.toFixed(1)} / 3</b></span>
+                      <span><small>{t.setupQuality}</small><b>{decision.judgments.setup_quality.score.toFixed(1)} / 4</b></span>
+                      <span><small>{t.selectedSetup}</small><b>{decision.selectedSetup ?? "—"}</b></span>
+                      <span><small>{t.entryReadiness}</small><b>{decision.entryReadiness ?? "—"}</b></span>
+                      <span><small>{t.expectedEdge}</small><b>{(decision.expectedNetEdgePct ?? 0).toFixed(3)}%</b></span>
+                      <span><small>{t.riskBudget}</small><b>{(decision.grossRiskBudgetPct ?? 0).toFixed(1)}%</b></span>
                     </div>
                   )}
                   <p>{execution?.reason ?? "—"}</p>

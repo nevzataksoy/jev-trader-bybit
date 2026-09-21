@@ -110,13 +110,20 @@ ALLOCATION_DEADBAND_PCT=3
 MIN_POLICY_CONFIDENCE=0.58
 MIN_SELL_CONFIDENCE=0.60
 MIN_DIRECTIONAL_EDGE=0.15
-MIN_SETUP_SCORE=1.50
+MIN_SETUP_SCORE=2.00
+MIN_EXPECTED_NET_EDGE_PCT=0.05
 MIN_LIQUIDITY_PROBABILITY=0.55
 DISORDERLY_PROBABILITY=0.70
 CUT_POSITION_PROBABILITY=0.72
 MACRO_CACHE_HOURS=6
+BOT_RUN_RETENTION_DAYS=45
+DAILY_HISTORY_RETENTION_DAYS=1825
+ORDER_HISTORY_RETENTION_DAYS=730
+MACRO_HISTORY_RETENTION_DAYS=730
 ALLOW_LIVE_TRADING=false
 ```
+
+`BOT_RUN_RETENTION_DAYS` ayrıntılı Jev/market JSON kayıtlarının ve bunlara bağlı 15 dakikalık ham snapshot'ların saklama süresidir. Cleanup bu kayıtları silmeden önce son günlük sermaye noktasını `daily_portfolio_snapshots` tablosuna hem UTC hem Europe/Istanbul günü için aktarır. `DAILY_HISTORY_RETENTION_DAYS` uzun vadeli grafiği, `ORDER_HISTORY_RETENTION_DAYS` yalnızca açık olmayan eski emirleri, `MACRO_HISTORY_RETENTION_DAYS` ise makro geçmişini sınırlar. Bakım her sahip olunan cron turunun sonunda çalışır ve başarısız olması trading turunun sonucunu geriye dönük olarak değiştirmez.
 
 En az birkaç başarılı gözlem çevrimi ve dashboard doğrulaması sonrasında yalnızca Demo Trading için:
 
@@ -170,7 +177,31 @@ Kontrol adresleri:
 - Durum API: `http://localhost:3000/api/state`
 - Hazırlık kontrolü: `http://localhost:3000/api/health`
 
-### 8. Vercel yayını
+### 8. Yerel tarihsel simülasyon
+
+Simülasyon için `.env.local` içinde yerel PostgreSQL bağlantısını ayrıca tanımlayın. Aynı yerel veritabanı kullanılabilir; veriler ayrı `simulation` şemasında tutulur:
+
+```env
+BACKTEST_DATABASE_URL=postgresql://postgres:URL_ENCODED_PASSWORD@127.0.0.1:5432/jev-trader-bybit?sslmode=disable
+ALLOW_REMOTE_BACKTEST_DB=false
+BACKTEST_INITIAL_CAPITAL_USDT=1000
+BACKTEST_TAKER_FEE_PCT=0.10
+BACKTEST_SLIPPAGE_PCT=0.03
+```
+
+```powershell
+npm run simulation:setup
+npm run backtest:smoke
+$env:BACKTEST_CONFIRM_JEV_USAGE="true"
+npm run backtest:2d
+Remove-Item Env:BACKTEST_CONFIRM_JEV_USAGE
+npm run backtest:report
+npm run backtest:inspect
+```
+
+`backtest:smoke` bir Jev çağrısı, tam iki günlük koşu 192 Jev çağrısı yapar. Tam koşu bu nedenle açık onay değişkeni olmadan başlamaz. Simülasyon kodu uzak veritabanını varsayılan olarak reddeder; üretim Neon/Vercel veritabanına yazmak için güvenlik kilidini kaldırmayın. Rapor sonucu yalnız iki günlük boru hattı tanısıdır ve kârlılık kanıtı değildir.
+
+### 9. Vercel yayını
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnevzataksoy%2Fjev-trader-bybit)
 
@@ -278,14 +309,21 @@ ALLOCATION_DEADBAND_PCT=3
 MIN_POLICY_CONFIDENCE=0.58
 MIN_SELL_CONFIDENCE=0.60
 MIN_DIRECTIONAL_EDGE=0.15
-MIN_SETUP_SCORE=1.50
+MIN_SETUP_SCORE=2.00
+MIN_EXPECTED_NET_EDGE_PCT=0.05
 MIN_LIQUIDITY_PROBABILITY=0.55
 DISORDERLY_PROBABILITY=0.70
 CUT_POSITION_PROBABILITY=0.72
 MACRO_CACHE_HOURS=6
+BOT_RUN_RETENTION_DAYS=45
+DAILY_HISTORY_RETENTION_DAYS=1825
+ORDER_HISTORY_RETENTION_DAYS=730
+MACRO_HISTORY_RETENTION_DAYS=730
 ALLOW_LIVE_TRADING=false
 CRON_SECRET=use_at_least_32_random_characters
 ```
+
+`BOT_RUN_RETENTION_DAYS` controls detailed Jev/market JSON and linked raw 15-minute snapshots. Before those rows expire, cleanup archives the latest daily equity point for both UTC and Europe/Istanbul in `daily_portfolio_snapshots`. The other retention values govern the long-term chart, closed order history and macro history. Maintenance runs after every owned cron cycle, never deletes open orders, and a cleanup error does not rewrite an otherwise completed trading cycle as failed.
 
 Run several successful cycles, inspect stored snapshots and decisions, and confirm the dashboard before setting `TRADING_ENABLED=true` for Demo Trading.
 
@@ -317,7 +355,31 @@ Create a job at cron-job.org:
 
 Run **Test run** first. A successful request returns HTTP `200` with `{"success":true,...}`. If that 15-minute window was already processed, `skipped:true` is also a safe successful result.
 
-### 6. Vercel deployment
+### 6. Local historical simulation
+
+Add a dedicated local connection to `.env.local`. It may point to the same local database because all backtest records live in the separate `simulation` schema:
+
+```env
+BACKTEST_DATABASE_URL=postgresql://postgres:URL_ENCODED_PASSWORD@127.0.0.1:5432/jev-trader-bybit?sslmode=disable
+ALLOW_REMOTE_BACKTEST_DB=false
+BACKTEST_INITIAL_CAPITAL_USDT=1000
+BACKTEST_TAKER_FEE_PCT=0.10
+BACKTEST_SLIPPAGE_PCT=0.03
+```
+
+```powershell
+npm run simulation:setup
+npm run backtest:smoke
+$env:BACKTEST_CONFIRM_JEV_USAGE="true"
+npm run backtest:2d
+Remove-Item Env:BACKTEST_CONFIRM_JEV_USAGE
+npm run backtest:report
+npm run backtest:inspect
+```
+
+The smoke command makes one Jev call; the full two-day replay makes 192. The full run is blocked without explicit usage confirmation. Remote databases are rejected by default so simulation rows cannot accidentally pollute Neon/Vercel production. A two-day report is a pipeline diagnostic, not evidence of profitability.
+
+### 7. Vercel deployment
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnevzataksoy%2Fjev-trader-bybit)
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAccountEnvironment, getTradingConfig, SYMBOLS } from "@/lib/config";
 import {
   beginBotRun,
+  cleanupDatabase,
   completeBotRun,
   failBotRun,
   getLatestMacroSnapshot,
@@ -47,6 +48,16 @@ function getCycleKey(now = new Date()) {
 function isAuthorized(request: Request) {
   const secret = process.env.CRON_SECRET?.trim();
   return Boolean(secret && request.headers.get("authorization") === `Bearer ${secret}`);
+}
+
+async function runEndOfCycleCleanup(cycleKey: string) {
+  try {
+    return { success: true as const, ...(await cleanupDatabase()) };
+  } catch (error) {
+    const message = getSafeErrorMessage(error, "Database cleanup failed");
+    console.error("[cron-cleanup]", { cycleKey, message });
+    return { success: false as const, error: message };
+  }
 }
 
 export async function GET(request: Request) {
@@ -251,7 +262,15 @@ export async function GET(request: Request) {
       executions = reconcileExecutions(executions, refreshedActivity.orders);
     }
 
-    await completeBotRun(cycleKey, jev.model, indicators, decisionContext, jev.decisions, executions);
+    await completeBotRun(
+      cycleKey,
+      jev.model,
+      indicators,
+      { ...decisionContext, portfolioJudgments: jev.portfolioJudgments },
+      jev.decisions,
+      executions,
+    );
+    const cleanup = await runEndOfCycleCleanup(cycleKey);
     return NextResponse.json({
       success: true,
       cycleKey,
@@ -264,6 +283,8 @@ export async function GET(request: Request) {
       executions,
       model: jev.model,
       usage: jev.usage,
+      portfolioJudgments: jev.portfolioJudgments,
+      cleanup,
       macro: {
         sourceObservedAt: macro.source_observed_at,
         dataQuality: macro.data_quality,
@@ -279,6 +300,7 @@ export async function GET(request: Request) {
       } catch (persistenceError) {
         console.error("[cron] failed to persist run failure", persistenceError);
       }
+      await runEndOfCycleCleanup(cycleKey);
     }
     console.error("[cron]", { cycleKey, message });
     return NextResponse.json({ success: false, cycleKey, error: message }, { status: 500 });

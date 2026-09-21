@@ -20,13 +20,23 @@ describe("strategy runtime configuration", () => {
 
   it("forces exchange routing off in A/B mode even when trading is enabled", () => {
     process.env.STRATEGY_RUN_MODE = "ab_test";
+    process.env.AB_ENGINE_IDS = "model1-blind,model2-blind";
     process.env.EXCHANGE_EXECUTION_ENGINE = "model1";
     const strategy = getStrategyRuntimeConfig();
+    expect(strategy.activeEngines).toEqual(["model1-blind", "model2-blind"]);
     expect(getExchangeRoutingState("model1", strategy, true)).toEqual({
       allowed: false,
       reason: "ab_test_lock",
     });
     expect(getExchangeRoutingState("model2", strategy, true).allowed).toBe(false);
+  });
+
+  it("rejects missing or duplicate A/B model files", () => {
+    process.env.STRATEGY_RUN_MODE = "ab_test";
+    process.env.AB_ENGINE_IDS = "model1-blind,model1-blind";
+    expect(() => getStrategyRuntimeConfig()).toThrow("exactly two distinct");
+    process.env.AB_ENGINE_IDS = "model1-blind,missing-model";
+    expect(() => getStrategyRuntimeConfig()).toThrow("unavailable strategy models");
   });
 
   it("routes only the explicitly selected engine outside A/B mode", () => {
@@ -35,5 +45,10 @@ describe("strategy runtime configuration", () => {
     const strategy = getStrategyRuntimeConfig();
     expect(getExchangeRoutingState("model2", strategy, true).allowed).toBe(true);
     expect(getExchangeRoutingState("model1", strategy, true).reason).toBe("engine_not_selected");
+  });
+
+  it("fails closed instead of silently selecting another deleted model", () => {
+    process.env.STRATEGY_RUN_MODE = "deleted-model";
+    expect(() => getStrategyRuntimeConfig()).toThrow("unavailable model");
   });
 });

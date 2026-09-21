@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export function GET() {
   const strategy = getStrategyRuntimeConfig();
-  const activeEngine = strategy.runMode === "ab_test" ? "model1" : strategy.runMode;
+  const activeEngine = strategy.activeEngines[0];
   const routing = getExchangeRoutingState(activeEngine, strategy, getTradingConfig().enabled);
   const ready = Boolean(
     process.env.CRON_SECRET?.trim()
@@ -24,6 +24,7 @@ export function GET() {
     tradingEnabled: getTradingConfig().enabled,
     strategyRunMode: strategy.runMode,
     activeEngines: strategy.activeEngines,
+    availableEngines: strategy.availableEngines,
     exchangeExecutionEngine: strategy.executionEngine,
     exchangeRoutingAllowed: routing.allowed,
     exchangeRoutingReason: routing.reason,

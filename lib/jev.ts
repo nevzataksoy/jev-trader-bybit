@@ -18,6 +18,7 @@ import type {
 
 export interface JevTradingState {
   observedAt: string;
+  blindEpisodeKey?: string;
   executionEnvironment: "testnet" | "demo" | "mainnet";
   marketSource: "bybit-mainnet";
   balances: SpotBalance[];

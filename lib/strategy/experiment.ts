@@ -78,6 +78,9 @@ export interface EngineComparisonSummary {
   averageLatencyMs: number | null;
   inputTokens: number;
   outputTokens: number;
+  completedRuns: number;
+  abstentionRuns: number;
+  abstentionRatePct: number;
   balances: SpotBalance[];
 }
 
@@ -154,18 +157,29 @@ export async function ensureStrategyExperiment(
   await ensureDatabase();
   const sql = getSql();
   await sql.begin(async (transaction) => {
+    const requestedEngineVersions = Object.fromEntries(Object.entries(engineVersions).sort(([left], [right]) => left.localeCompare(right)));
+    const existingRows = await transaction`
+      SELECT engine_versions FROM strategy_experiments WHERE experiment_id = ${config.experimentId} LIMIT 1
+    `;
+    if (existingRows.length) {
+      const existingVersions = parseJson<Record<string, string>>(existingRows[0].engine_versions, {});
+      const normalizedExisting = Object.fromEntries(Object.entries(existingVersions).sort(([left], [right]) => left.localeCompare(right)));
+      if (JSON.stringify(normalizedExisting) !== JSON.stringify(requestedEngineVersions)) {
+        throw new Error(`AB_EXPERIMENT_ID ${config.experimentId} already belongs to a different engine set. Use a new experiment id.`);
+      }
+    }
     await transaction`
       INSERT INTO strategy_experiments (
         experiment_id, status, initial_capital_usdt, started_at, planned_end_at, engine_versions, configuration
       ) VALUES (
         ${config.experimentId}, 'running', ${config.initialCapitalUsdt}, NOW(),
         NOW() + (${config.minimumDays} * INTERVAL '1 day'),
-        ${JSON.stringify(engineVersions)}::jsonb,
-        ${JSON.stringify({ minimumDays: config.minimumDays, minimumFilledOrdersPerEngine: config.minimumFilledOrdersPerEngine })}::jsonb
+        ${JSON.stringify(requestedEngineVersions)}::jsonb,
+        ${JSON.stringify({ engineIds: Object.keys(requestedEngineVersions), minimumDays: config.minimumDays, minimumFilledOrdersPerEngine: config.minimumFilledOrdersPerEngine })}::jsonb
       )
       ON CONFLICT (experiment_id) DO NOTHING
     `;
-    for (const engineId of ["model1", "model2"] as const) {
+    for (const engineId of Object.keys(requestedEngineVersions)) {
       for (const asset of ASSET_IDS) {
         await transaction`
           INSERT INTO engine_portfolios (
@@ -512,6 +526,14 @@ export async function getModelsDashboardState(
     sql`
       SELECT engine_id,
              COUNT(*) FILTER (WHERE status = 'failed')::int AS failures,
+             COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_runs,
+             COUNT(*) FILTER (
+               WHERE status = 'completed'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM jsonb_array_elements(decisions) AS decision
+                   WHERE decision->>'action' IN ('buy', 'sell')
+                 )
+             )::int AS abstention_runs,
              AVG(latency_ms) FILTER (WHERE latency_ms IS NOT NULL) AS average_latency_ms,
              COALESCE(SUM(COALESCE((usage->>'input_tokens')::bigint, 0)), 0) AS input_tokens,
              COALESCE(SUM(COALESCE((usage->>'output_tokens')::bigint, 0)), 0) AS output_tokens,
@@ -547,18 +569,21 @@ export async function getModelsDashboardState(
     startedAt: new Date(String(row.started_at)).toISOString(),
     completedAt: row.completed_at ? new Date(String(row.completed_at)).toISOString() : null,
   }));
-  const engineVersions = parseJson<Record<StrategyEngineId, string>>(experimentRow.engine_versions, { model1: "model1-v1", model2: "model2-rotation-v1" });
+  const engineVersions = parseJson<Record<StrategyEngineId, string>>(experimentRow.engine_versions, {});
   const initialCapital = Number(experimentRow.initial_capital_usdt);
   const latestPricesRow = await sql`SELECT prices FROM shared_market_snapshots ORDER BY captured_at DESC LIMIT 1`;
   const latestPrices = parseJson<TickerPrices>(latestPricesRow[0]?.prices, { USDT: 1, BTC: 0, ETH: 0, XAUT: 0 });
-  const configuration = parseJson<{ minimumFilledOrdersPerEngine?: number }>(experimentRow.configuration, {});
-  const engines: EngineComparisonSummary[] = (["model1", "model2"] as const).map((engineId) => {
+  const configuration = parseJson<{ engineIds?: StrategyEngineId[]; minimumFilledOrdersPerEngine?: number }>(experimentRow.configuration, {});
+  const engineIds = configuration.engineIds?.length ? configuration.engineIds : Object.keys(engineVersions);
+  const engines: EngineComparisonSummary[] = engineIds.map((engineId) => {
     const points = equity.filter((point) => point.engineId === engineId);
     const orderStats = orderStatsRows.find((row) => String(row.engine_id) === engineId);
     const runStats = runStatsRows.find((row) => String(row.engine_id) === engineId);
     const latest = points.at(-1);
     const quantities = new Map(portfolioRows.filter((row) => String(row.engine_id) === engineId).map((row) => [String(row.asset) as AssetId, Number(row.quantity)]));
     const balances = ASSET_IDS.map((asset) => ({ coin: asset, free: quantities.get(asset) ?? 0, locked: 0, total: quantities.get(asset) ?? 0, usdtValue: (quantities.get(asset) ?? 0) * latestPrices[asset] } satisfies SpotBalance));
+    const completedRuns = Number(runStats?.completed_runs ?? 0);
+    const abstentionRuns = Number(runStats?.abstention_runs ?? 0);
     return {
       engineId,
       engineVersion: engineVersions[engineId],
@@ -574,6 +599,9 @@ export async function getModelsDashboardState(
       averageLatencyMs: runStats?.average_latency_ms === null || runStats?.average_latency_ms === undefined ? null : Number(runStats.average_latency_ms),
       inputTokens: Number(runStats?.input_tokens ?? 0),
       outputTokens: Number(runStats?.output_tokens ?? 0),
+      completedRuns,
+      abstentionRuns,
+      abstentionRatePct: completedRuns > 0 ? abstentionRuns / completedRuns * 100 : 0,
       balances,
     };
   });

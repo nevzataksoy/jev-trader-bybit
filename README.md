@@ -194,3 +194,13 @@ A/B modunda gerçek borsa iletimi kod seviyesinde zorunlu olarak kapalıdır. `T
 Exchange routing is unconditionally disabled in A/B mode. Even if `TRADING_ENABLED=true` or an exchange engine is selected, a paper order is stored with `routing_status=suppressed_ab_test` and affects only that engine's virtual balance. Compare the bilingual results at [`/models`](https://jev-trader-bybit.vercel.app/models).
 
 The initial forward observation requires at least 42 days and 30 simulated fills per engine. Cleanup never removes active experiments; completed or cancelled experiments become eligible after `EXPERIMENT_DETAIL_RETENTION_DAYS`.
+
+## Kör Jev motorları / Blind Jev engines
+
+Motorlar `lib/strategy/models/*.ts` dosyalarından build öncesinde otomatik keşfedilir. Bir motor eklemek için aynı sözleşmeyi uygulayan tek bir model dosyası ekleyin; kaldırmak için ilgili dosyayı silin. `predev`, `prebuild`, `prelint`, `pretypecheck` ve `pretest` adımları generated catalog/registry dosyalarını otomatik yeniler.
+
+Eski `model1` ve `model2` motorları karşılaştırma amacıyla korunur. `model1-blind` ve `model2-blind`; gerçek varlık kodu, sembol, fiyat, mutlak teknik seviye, ham miktar ve gerçek takvim bilgisini Jev'e göndermez. Getiriler, oynaklık, kanal konumu, göreli güç, işlem maliyeti ve diğer sayısal sinyaller gerçek serilerden hesaplanmaya devam eder. Jev yalnızca anonim piyasa uygunluğu üretir; varlık eşleme, portföy hedefi, risk ve emir kararı uygulama kodunda kalır.
+
+The strategy registry is generated from `lib/strategy/models/*.ts`. Add one contract-compatible file to add an engine, or delete that file to remove it. Legacy `model1` and `model2` remain available; `model1-blind` and `model2-blind` apply data-side asset and calendar masking while preserving normalized market evidence. Jev supplies typed evidence only, while deterministic application policy owns identity mapping, allocation, risk and execution.
+
+Geçmiş simülasyonda motor seçimi `BACKTEST_STRATEGY_ENGINE=model1-blind` ile yapılır; böylece production, paper A/B ve backtest aynı dosya tabanlı motor sözleşmesini kullanır.

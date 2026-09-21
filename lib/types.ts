@@ -289,7 +289,7 @@ export interface OrderHistoryItem {
 }
 
 export interface BotExecutionResult {
-  engineId?: "model1" | "model2";
+  engineId?: string;
   asset: TradeAsset;
   symbol: string;
   action: TradeAction;
@@ -320,9 +320,10 @@ export interface DashboardState {
   marketSource: "bybit-mainnet";
   tradingEnabled: boolean;
   strategy: {
-    runMode: "model1" | "model2" | "ab_test";
-    activeEngines: ("model1" | "model2")[];
-    executionEngine: "model1" | "model2" | "none";
+    runMode: string;
+    activeEngines: string[];
+    availableEngines: string[];
+    executionEngine: string;
     exchangeRoutingAllowed: boolean;
     exchangeRoutingReason: string;
   };

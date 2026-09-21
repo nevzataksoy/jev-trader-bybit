@@ -404,7 +404,8 @@ The repository's `vercel.json` selects only the `fra1` Frankfurt Function region
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+AB_ENGINE_IDS=model1-blind,model2-blind
+AB_EXPERIMENT_ID=model1-blind-v2-vs-model2-blind-v2
 AB_INITIAL_CAPITAL_USDT=1000
 AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
@@ -430,3 +431,9 @@ TRADING_ENABLED=true
 ```
 
 Bu örnek yalnızca Demo Trading için kullanılmalıdır. `STRATEGY_RUN_MODE=ab_test` olduğu sürece diğer iki değer ne olursa olsun borsa iletimi kapalı kalır.
+
+Model dosyaları `lib/strategy/models` klasöründedir. `npm run dev`, `npm run build` ve kalite komutları öncesinde registry otomatik oluşturulur. Bir modeli kaldırmak için yalnızca ilgili `.ts` dosyasını silin. Aktif bir A/B deneyindeki motor setini değiştirirseniz eski kayıtlarla karışmaması için yeni bir `AB_EXPERIMENT_ID` kullanın; uygulama aynı deney kimliğini farklı motor setiyle kullanmayı reddeder.
+
+Strategy models live under `lib/strategy/models`. The registry is regenerated automatically before development, build and quality commands. Delete a model file to remove that engine. When changing the engines in an A/B test, use a new `AB_EXPERIMENT_ID`; the application rejects reusing an existing experiment id with a different engine set.
+
+Backtest motorunu aynı registry üzerinden seçmek için `BACKTEST_STRATEGY_ENGINE=model1-blind` kullanın.

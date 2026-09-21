@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { getTradingConfig } from "../config";
-import { buildSemanticState, evaluateTradingState, type JevTradingState } from "../jev";
+import type { JevTradingState } from "../jev";
 import { buildPositionContexts, rankDecisionsForExecution } from "../portfolio";
 import { createExecutionPlan } from "../risk";
+import { STRATEGY_ENGINE_IDS } from "../strategy/catalog.generated";
+import { getStrategyEngine } from "../strategy/runner";
 import { TRADE_ASSETS, type FeeRate, type MarketIndicatorState, type TickerPrices, type TradeAsset } from "../types";
 import {
   beginSimulationRun,
@@ -187,6 +189,9 @@ export async function runHistoricalSimulation(args: {
   const runId = args.runId ?? `sim-${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
   const progress = args.onProgress ?? (() => undefined);
   const startedAt = new Date().toISOString();
+  const availableEngines = STRATEGY_ENGINE_IDS as readonly string[];
+  const defaultEngine = availableEngines.includes("model1") ? "model1" : availableEngines[0];
+  const engine = getStrategyEngine(process.env.BACKTEST_STRATEGY_ENGINE?.trim().toLowerCase() || defaultEngine);
   await beginSimulationRun(runId, new Date(config.startAt).toISOString(), new Date(config.endAt).toISOString(), config);
   try {
     const dataset = await fetchHistoricalDataset(config, progress);
@@ -214,6 +219,7 @@ export async function runHistoricalSimulation(args: {
       const macro = buildAsOfMacroState(dataset, cycleAt);
       const state: JevTradingState = {
         observedAt: new Date(cycleAt).toISOString(),
+        blindEpisodeKey: runId,
         executionEnvironment: "demo",
         marketSource: "bybit-mainnet",
         balances: balancesBefore,
@@ -225,8 +231,8 @@ export async function runHistoricalSimulation(args: {
         portfolioRisk,
         macro,
       };
-      const semanticState = buildSemanticState(state);
-      const jev = await evaluateTradingState(state);
+      const semanticState = engine.buildAuditState?.(state) ?? null;
+      const jev = await engine.evaluate(state);
       const executions = [] as SimulationCycleRecord["executions"];
       let buysFilled = 0;
       for (const decision of rankDecisionsForExecution(jev.decisions)) {
@@ -276,7 +282,7 @@ export async function runHistoricalSimulation(args: {
         macro,
         marketState,
         semanticState,
-        model: jev.model,
+        model: `${engine.id}@${engine.version}:${jev.model}`,
         inputTokens: jev.usage.input_tokens,
         outputTokens: jev.usage.output_tokens,
         decisions: jev.decisions,

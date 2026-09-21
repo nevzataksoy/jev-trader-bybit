@@ -1,9 +1,9 @@
 import { choice, noul, score, TypeSafeClient, type EntryType } from "@typesafe-ai/sdk";
-import { getTradingConfig } from "../config";
-import type { JevPortfolioJudgments, TradeAsset } from "../types";
-import { TRADE_ASSETS } from "../types";
-import { buildRotationDecisions, type RotationAssetJudgment } from "./model2-policy";
-import type { StrategyEngine } from "./types";
+import { getTradingConfig } from "../../config";
+import type { JevPortfolioJudgments, TradeAsset } from "../../types";
+import { TRADE_ASSETS } from "../../types";
+import { buildRotationDecisions, type RotationAssetJudgment } from "../model2-policy";
+import type { StrategyEngine } from "../types";
 
 function rotationRegimeQuestion(asset: TradeAsset) {
   return choice(
@@ -212,6 +212,7 @@ export function buildRotationSemanticState(state: Parameters<StrategyEngine["eva
 export const model2Engine: StrategyEngine = {
   id: "model2",
   version: "model2-rotation-v1",
+  buildAuditState: buildRotationSemanticState,
   async evaluate(state) {
     const apiKey = process.env.TYPESAFE_API_KEY?.trim() || process.env.JEV_API_KEY?.trim();
     if (!apiKey) throw new Error("TYPESAFE_API_KEY is not configured.");
@@ -271,6 +272,4 @@ export const model2Engine: StrategyEngine = {
   },
 };
 
-export const strategyEngines = {
-  model2: model2Engine,
-};
+export default model2Engine;

@@ -19,14 +19,16 @@ import {
   savePaperEquitySnapshot,
   simulatePaperOrder,
 } from "./experiment";
-import { model1Engine } from "./model1";
-import { model2Engine } from "./model2";
+import { strategyEngines } from "./registry.generated";
 import type { StrategyEngine, StrategyEngineId, StrategyEngineResult } from "./types";
 
-export const strategyEngines: Record<StrategyEngineId, StrategyEngine> = {
-  model1: model1Engine,
-  model2: model2Engine,
-};
+export { strategyEngines } from "./registry.generated";
+
+export function getStrategyEngine(engineId: StrategyEngineId): StrategyEngine {
+  const engine = (strategyEngines as Record<string, StrategyEngine>)[engineId];
+  if (!engine) throw new Error(`Strategy engine is unavailable: ${engineId}`);
+  return engine;
+}
 
 export interface SharedEngineCycleContext {
   experimentId: string;
@@ -58,7 +60,7 @@ export async function runPaperEngineCycle(
   engineId: StrategyEngineId,
   shared: SharedEngineCycleContext,
 ): Promise<PaperEngineCycleResult> {
-  const engine = strategyEngines[engineId];
+  const engine = getStrategyEngine(engineId);
   await beginEngineRun(shared.experimentId, shared.cycleKey, shared.snapshotId, engine.id, engine.version);
   try {
     const paper = await getPaperTradingState(
@@ -69,6 +71,7 @@ export async function runPaperEngineCycle(
     );
     const state = createEngineState({
       observedAt: shared.capturedAt,
+      blindEpisodeKey: shared.experimentId,
       executionEnvironment: shared.executionEnvironment,
       balances: paper.balances,
       prices: shared.prices,

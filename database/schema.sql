@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS engine_runs (
   experiment_id TEXT NOT NULL REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
   cycle_key TEXT NOT NULL,
   snapshot_id BIGINT NOT NULL REFERENCES shared_market_snapshots(id) ON DELETE CASCADE,
-  engine_id TEXT NOT NULL CHECK (engine_id IN ('model1', 'model2')),
+  engine_id TEXT NOT NULL,
   engine_version TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS engine_runs (
 
 CREATE TABLE IF NOT EXISTS engine_portfolios (
   experiment_id TEXT NOT NULL REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
-  engine_id TEXT NOT NULL CHECK (engine_id IN ('model1', 'model2')),
+  engine_id TEXT NOT NULL,
   asset TEXT NOT NULL CHECK (asset IN ('USDT', 'BTC', 'ETH', 'XAUT')),
   quantity NUMERIC(40, 18) NOT NULL DEFAULT 0,
   average_entry_price NUMERIC(40, 18),
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS engine_equity_snapshots (
   id BIGSERIAL PRIMARY KEY,
   experiment_id TEXT NOT NULL REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
   cycle_key TEXT NOT NULL,
-  engine_id TEXT NOT NULL CHECK (engine_id IN ('model1', 'model2')),
+  engine_id TEXT NOT NULL,
   captured_at TIMESTAMPTZ NOT NULL,
   total_equity_usdt NUMERIC(30, 10) NOT NULL,
   cash_usdt NUMERIC(30, 10) NOT NULL,
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS engine_orders (
   experiment_id TEXT NOT NULL REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
   cycle_key TEXT NOT NULL,
   snapshot_id BIGINT NOT NULL REFERENCES shared_market_snapshots(id) ON DELETE CASCADE,
-  engine_id TEXT NOT NULL CHECK (engine_id IN ('model1', 'model2')),
+  engine_id TEXT NOT NULL,
   engine_version TEXT NOT NULL,
   asset TEXT NOT NULL CHECK (asset IN ('BTC', 'ETH', 'XAUT')),
   symbol TEXT NOT NULL,
@@ -164,3 +164,7 @@ CREATE INDEX IF NOT EXISTS engine_equity_experiment_idx ON engine_equity_snapsho
 CREATE INDEX IF NOT EXISTS engine_orders_experiment_idx ON engine_orders(experiment_id, engine_id, created_at DESC);
 
 ALTER TABLE bot_runs ADD COLUMN IF NOT EXISTS decision_context JSONB;
+ALTER TABLE engine_runs DROP CONSTRAINT IF EXISTS engine_runs_engine_id_check;
+ALTER TABLE engine_portfolios DROP CONSTRAINT IF EXISTS engine_portfolios_engine_id_check;
+ALTER TABLE engine_equity_snapshots DROP CONSTRAINT IF EXISTS engine_equity_snapshots_engine_id_check;
+ALTER TABLE engine_orders DROP CONSTRAINT IF EXISTS engine_orders_engine_id_check;

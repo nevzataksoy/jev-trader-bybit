@@ -51,7 +51,7 @@ export async function GET(request: Request) {
     : "not_configured";
   const messages: string[] = [];
   const strategy = getStrategyRuntimeConfig();
-  const routingEngine = strategy.runMode === "ab_test" ? "model1" : strategy.runMode;
+  const routingEngine = strategy.activeEngines[0];
   const routing = getExchangeRoutingState(routingEngine, strategy, getTradingConfig().enabled);
 
   try {
@@ -97,6 +97,7 @@ export async function GET(request: Request) {
     strategy: {
       runMode: strategy.runMode,
       activeEngines: strategy.activeEngines,
+      availableEngines: strategy.availableEngines,
       executionEngine: strategy.executionEngine,
       exchangeRoutingAllowed: routing.allowed,
       exchangeRoutingReason: routing.reason,

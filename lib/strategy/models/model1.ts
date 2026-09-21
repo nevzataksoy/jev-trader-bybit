@@ -1,9 +1,10 @@
-import { evaluateTradingState } from "../jev";
-import type { StrategyEngine } from "./types";
+import { buildSemanticState, evaluateTradingState } from "../../jev";
+import type { StrategyEngine } from "../types";
 
 export const model1Engine: StrategyEngine = {
   id: "model1",
   version: "model1-v1",
+  buildAuditState: buildSemanticState,
   async evaluate(state) {
     const startedAt = Date.now();
     const response = await evaluateTradingState(state);
@@ -15,3 +16,5 @@ export const model1Engine: StrategyEngine = {
     };
   },
 };
+
+export default model1Engine;

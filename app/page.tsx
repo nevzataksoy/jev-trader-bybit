@@ -191,9 +191,10 @@ const initialState: DashboardState = {
   marketSource: "bybit-mainnet",
   tradingEnabled: false,
   strategy: {
-    runMode: "model1",
-    activeEngines: ["model1"],
-    executionEngine: "model1",
+    runMode: "loading",
+    activeEngines: [],
+    availableEngines: [],
+    executionEngine: "none",
     exchangeRoutingAllowed: false,
     exchangeRoutingReason: "trading_disabled",
   },

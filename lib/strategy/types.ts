@@ -1,7 +1,7 @@
 import type { JevTradingState } from "../jev";
 import type { JevResponse } from "../types";
 
-export type StrategyEngineId = "model1" | "model2";
+export type StrategyEngineId = string;
 
 export interface StrategyEngineResult extends JevResponse {
   engineId: StrategyEngineId;
@@ -12,5 +12,6 @@ export interface StrategyEngineResult extends JevResponse {
 export interface StrategyEngine {
   id: StrategyEngineId;
   version: string;
+  buildAuditState?(state: JevTradingState): unknown;
   evaluate(state: JevTradingState): Promise<StrategyEngineResult>;
 }

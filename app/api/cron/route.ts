@@ -35,7 +35,7 @@ import { MarketDataAggregator, stabilizeMamisPhases } from "@/lib/providers/mark
 import { createExecutionPlan } from "@/lib/risk";
 import { getExchangeRoutingState, getStrategyRuntimeConfig } from "@/lib/strategy/config";
 import { ensureStrategyExperiment, saveSharedMarketSnapshot } from "@/lib/strategy/experiment";
-import { createEngineState, runPaperEngineCycle, strategyEngines } from "@/lib/strategy/runner";
+import { createEngineState, getStrategyEngine, runPaperEngineCycle } from "@/lib/strategy/runner";
 import type { StrategyEngineId } from "@/lib/strategy/types";
 import type { BotExecutionResult } from "@/lib/types";
 
@@ -125,10 +125,10 @@ export async function GET(request: Request) {
     const accountEnvironment = getAccountEnvironment();
 
     if (strategy.runMode === "ab_test") {
-      const engineVersions = {
-        model1: strategyEngines.model1.version,
-        model2: strategyEngines.model2.version,
-      };
+      const engineVersions = Object.fromEntries(strategy.activeEngines.map((engineId) => [
+        engineId,
+        getStrategyEngine(engineId).version,
+      ]));
       await ensureStrategyExperiment({
         experimentId: strategy.experimentId,
         initialCapitalUsdt: strategy.initialCapitalUsdt,
@@ -163,7 +163,7 @@ export async function GET(request: Request) {
           : {
               engineId,
               status: "failed" as const,
-              engineVersion: strategyEngines[engineId].version,
+              engineVersion: getStrategyEngine(engineId).version,
               error: getSafeErrorMessage(outcome.reason, `${engineId} failed`),
             };
       });
@@ -174,7 +174,7 @@ export async function GET(request: Request) {
       const positions = buildPositionContexts(balances, storedOrders, totalPortfolioUsdt);
       await completeBotRun(
         cycleKey,
-        `ab_test:${engineVersions.model1}|${engineVersions.model2}`,
+        `ab_test:${strategy.activeEngines.map((engineId) => `${engineId}@${engineVersions[engineId]}`).join("|")}`,
         indicators,
         { positions, fees, portfolioRisk, macro },
         [],
@@ -197,7 +197,7 @@ export async function GET(request: Request) {
     }
 
     const engineId = strategy.runMode as StrategyEngineId;
-    const engine = strategyEngines[engineId];
+    const engine = getStrategyEngine(engineId);
     const [portfolioRisk, storedOrders] = await Promise.all([
       getPortfolioRiskContext(totalPortfolioUsdt),
       getStoredOrders(500),

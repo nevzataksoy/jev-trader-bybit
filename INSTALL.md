@@ -410,8 +410,8 @@ The repository's `vercel.json` selects only the `fra1` Frankfurt Function region
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_ENGINE_IDS=model1-blind-v3,model2-blind-v3
-AB_EXPERIMENT_ID=model1-blind-v3-vs-model2-blind-v3
+AB_ENGINE_IDS=model1-blind-v4,model2-blind-v4
+AB_EXPERIMENT_ID=model1-blind-v4-vs-model2-blind-v4
 AB_INITIAL_CAPITAL_USDT=1000
 AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
@@ -431,8 +431,8 @@ To run the forward comparison, configure the same variables locally and in Verce
 A/B tamamlandıktan sonra tek motor çalıştırmak için örnek:
 
 ```env
-STRATEGY_RUN_MODE=model2-blind-v3
-EXCHANGE_EXECUTION_ENGINE=model2-blind-v3
+STRATEGY_RUN_MODE=model2-blind-v4
+EXCHANGE_EXECUTION_ENGINE=model2-blind-v4
 TRADING_ENABLED=true
 ```
 

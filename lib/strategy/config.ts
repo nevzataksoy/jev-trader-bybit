@@ -20,7 +20,7 @@ function numberFromEnv(name: string, fallback: number, min: number, max: number)
 }
 
 function abEngineIds() {
-  const preferredDefaults = ["model1-blind-v3", "model2-blind-v3"].filter((id) => availableEngineIds.has(id));
+  const preferredDefaults = ["model1-blind-v4", "model2-blind-v4"].filter((id) => availableEngineIds.has(id));
   const automaticDefaults = preferredDefaults.length === 2 ? preferredDefaults : [...STRATEGY_ENGINE_IDS].slice(0, 2);
   const configured = process.env.AB_ENGINE_IDS?.trim();
   const requested = (configured || automaticDefaults.join(","))

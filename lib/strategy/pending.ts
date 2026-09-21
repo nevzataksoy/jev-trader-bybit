@@ -139,6 +139,38 @@ export function evaluatePendingConfirmation(signal: PendingSignal, market: Marke
   };
 }
 
+function clamp(value: number) {
+  return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+}
+
+function evidenceWeightedConfidence(decision: JevDecision) {
+  const judgments = decision.judgments;
+  const setupSupport = judgments.best_setup.probabilities[decision.selectedSetup]
+    ?? judgments.best_setup.confidence;
+  const patternSupport = decision.selectedSetup === "range_reversion" || decision.selectedSetup === "bear_rebound"
+    ? judgments.reversal_confirmation
+    : judgments.follow_through.probabilities.continuation;
+  return clamp(
+    judgments.direction.probabilities.up * 0.25
+      + clamp(judgments.setup_quality.score / 4) * 0.2
+      + judgments.liquidity_ok * 0.15
+      + patternSupport * 0.1
+      + (1 - judgments.disorderly) * 0.1
+      + (1 - judgments.false_breakout) * 0.05
+      + setupSupport * 0.05
+      + 0.1,
+  );
+}
+
+export function confirmedSignalConfidence(current: JevDecision, source: JevDecision) {
+  return Math.max(
+    current.confidence,
+    source.confidence,
+    evidenceWeightedConfidence(current),
+    evidenceWeightedConfidence(source),
+  );
+}
+
 async function getActiveSignals(scopeId: string, engineId: string) {
   const sql = getSql();
   const rows = await sql`
@@ -195,7 +227,12 @@ async function createPendingSignal(input: {
   `;
 }
 
-function confirmedDecision(current: JevDecision, source: JevDecision, signal: PendingSignal) {
+export function buildConfirmedDecision(
+  current: JevDecision,
+  source: JevDecision,
+  signal: PendingSignal,
+  confidenceMode: StrategyEngine["confirmationConfidence"] = "legacy",
+) {
   const target = Math.max(current.targetAllocationPct, source.targetAllocationPct);
   const delta = target - current.currentAllocationPct;
   if (delta < getTradingConfig().allocationDeadbandPct) {
@@ -206,18 +243,24 @@ function confirmedDecision(current: JevDecision, source: JevDecision, signal: Pe
       action: "hold" as const,
       signalState: "confirmed" as const,
       blockedBy: ["ALLOCATION_DEADBAND" as const],
-      policyReason: `${current.policyReason} Pending ${signal.readiness} confirmation completed, but the remaining allocation delta is inside the deadband.`,
+      policyReason: `Stateful confirmation: ${signal.readiness} ${signal.setup} signal passed a later closed candle, but the remaining ${delta.toFixed(2)}% allocation delta is inside the deadband.`,
     };
   }
+  const confidence = confidenceMode === "evidence_weighted"
+    ? confirmedSignalConfidence(current, source)
+    : Math.max(current.confidence, source.confidence);
   return {
     ...current,
     action: "buy" as const,
-    confidence: Math.max(current.confidence, source.confidence),
+    confidence,
+    probabilities: confidenceMode === "evidence_weighted"
+      ? { buy: confidence, hold: 1 - confidence, sell: 0 }
+      : current.probabilities,
     targetAllocationPct: target,
     rebalanceDeltaPct: delta,
     signalState: "confirmed" as const,
     blockedBy: [],
-    policyReason: `${current.policyReason} Pending ${signal.readiness} signal was confirmed by a later closed candle.`,
+    policyReason: `Stateful confirmation: ${signal.readiness} ${signal.setup} signal passed a later closed candle; target ${target.toFixed(2)}% versus current ${current.currentAllocationPct.toFixed(2)}%${confidenceMode === "evidence_weighted" ? `; execution confidence ${confidence.toFixed(3)} combines source/current evidence and deterministic confirmation` : ""}.`,
   };
 }
 
@@ -254,7 +297,12 @@ export async function applyStatefulConfirmation(input: {
       if (confirmation.touched) await markRetestSeen(signal.id, input.capturedAt);
       if (confirmation.confirmed) {
         await resolveSignal(signal.id, "confirmed", input.cycleKey, "A later closed candle passed deterministic confirmation.");
-        decision = confirmedDecision(decision, signal.sourceDecision, signal);
+        decision = buildConfirmedDecision(
+          decision,
+          signal.sourceDecision,
+          signal,
+          input.engine.confirmationConfidence,
+        );
         signal = undefined;
       } else {
         const pendingBlocker: DecisionBlocker = signal.readiness === "wait_close" ? "PENDING_CLOSE" : "PENDING_RETEST";

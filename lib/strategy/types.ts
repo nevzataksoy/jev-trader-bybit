@@ -13,6 +13,7 @@ export interface StrategyEngine {
   id: StrategyEngineId;
   version: string;
   statefulConfirmation?: boolean;
+  confirmationConfidence?: "legacy" | "evidence_weighted";
   buildAuditState?(state: JevTradingState): unknown;
   evaluate(state: JevTradingState): Promise<StrategyEngineResult>;
 }

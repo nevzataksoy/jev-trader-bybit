@@ -57,6 +57,7 @@ export function getDatabaseMaintenanceConfig() {
     dailyHistoryRetentionDays: Math.round(numberFromEnv("DAILY_HISTORY_RETENTION_DAYS", 1_825, 90, 3_650)),
     orderRetentionDays: Math.round(numberFromEnv("ORDER_HISTORY_RETENTION_DAYS", 730, 90, 3_650)),
     macroRetentionDays: Math.round(numberFromEnv("MACRO_HISTORY_RETENTION_DAYS", 730, 90, 3_650)),
+    experimentRetentionDays: Math.round(numberFromEnv("EXPERIMENT_DETAIL_RETENTION_DAYS", 180, 45, 3_650)),
   };
 }
 

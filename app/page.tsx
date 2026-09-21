@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type {
   DashboardState,
   DailyPortfolioPoint,
@@ -189,6 +190,13 @@ const initialState: DashboardState = {
   accountEnvironment: "demo",
   marketSource: "bybit-mainnet",
   tradingEnabled: false,
+  strategy: {
+    runMode: "model1",
+    activeEngines: ["model1"],
+    executionEngine: "model1",
+    exchangeRoutingAllowed: false,
+    exchangeRoutingReason: "trading_disabled",
+  },
   balances: [],
   prices: { USDT: 1, BTC: 0, ETH: 0, XAUT: 0 },
   openOrders: [],
@@ -404,6 +412,7 @@ export default function Dashboard() {
           <span><strong>JEV</strong> PULSE</span>
         </a>
         <div className="topbar-actions">
+          <Link className="nav-link" href="/models">A/B LAB</Link>
           <div className="language-switch" aria-label="Language">
             {(["tr", "en"] as Language[]).map((language) => (
               <button

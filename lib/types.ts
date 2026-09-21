@@ -289,6 +289,7 @@ export interface OrderHistoryItem {
 }
 
 export interface BotExecutionResult {
+  engineId?: "model1" | "model2";
   asset: TradeAsset;
   symbol: string;
   action: TradeAction;
@@ -318,6 +319,13 @@ export interface DashboardState {
   accountEnvironment: "testnet" | "demo" | "mainnet";
   marketSource: "bybit-mainnet";
   tradingEnabled: boolean;
+  strategy: {
+    runMode: "model1" | "model2" | "ab_test";
+    activeEngines: ("model1" | "model2")[];
+    executionEngine: "model1" | "model2" | "none";
+    exchangeRoutingAllowed: boolean;
+    exchangeRoutingReason: string;
+  };
   balances: SpotBalance[];
   prices: TickerPrices;
   openOrders: OrderHistoryItem[];

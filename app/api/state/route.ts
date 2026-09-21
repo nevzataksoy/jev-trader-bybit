@@ -16,6 +16,7 @@ import {
 } from "@/lib/providers/bybit";
 import { getSafeErrorMessage } from "@/lib/errors";
 import type { DashboardState, OrderHistoryItem, SpotBalance, TickerPrices } from "@/lib/types";
+import { getExchangeRoutingState, getStrategyRuntimeConfig } from "@/lib/strategy/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,9 @@ export async function GET(request: Request) {
     ? "error"
     : "not_configured";
   const messages: string[] = [];
+  const strategy = getStrategyRuntimeConfig();
+  const routingEngine = strategy.runMode === "ab_test" ? "model1" : strategy.runMode;
+  const routing = getExchangeRoutingState(routingEngine, strategy, getTradingConfig().enabled);
 
   try {
     prices = await getSpotPrices();
@@ -90,6 +94,13 @@ export async function GET(request: Request) {
     accountEnvironment: getAccountEnvironment(),
     marketSource: "bybit-mainnet",
     tradingEnabled: getTradingConfig().enabled,
+    strategy: {
+      runMode: strategy.runMode,
+      activeEngines: strategy.activeEngines,
+      executionEngine: strategy.executionEngine,
+      exchangeRoutingAllowed: routing.allowed,
+      exchangeRoutingReason: routing.reason,
+    },
     balances,
     prices,
     openOrders,

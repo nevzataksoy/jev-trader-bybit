@@ -13,10 +13,9 @@ import {
   savePortfolioSnapshot,
   upsertOrders,
 } from "@/lib/db";
-import { evaluateTradingState } from "@/lib/jev";
-import { buildPositionContexts, rankDecisionsForExecution } from "@/lib/portfolio";
 import { getSafeErrorMessage } from "@/lib/errors";
 import { reconcileExecutions } from "@/lib/execution";
+import { buildPositionContexts, rankDecisionsForExecution } from "@/lib/portfolio";
 import {
   calculatePortfolioTotal,
   executeMarketBuy,
@@ -26,14 +25,18 @@ import {
   getSpotFeeRates,
   getSpotPrices,
 } from "@/lib/providers/bybit";
-import { MarketDataAggregator, stabilizeMamisPhases } from "@/lib/providers/market";
 import {
   createUnavailableMacroState,
   fetchMacroState,
   isMacroCacheFresh,
   markMacroStateStale,
 } from "@/lib/providers/macro";
+import { MarketDataAggregator, stabilizeMamisPhases } from "@/lib/providers/market";
 import { createExecutionPlan } from "@/lib/risk";
+import { getExchangeRoutingState, getStrategyRuntimeConfig } from "@/lib/strategy/config";
+import { ensureStrategyExperiment, saveSharedMarketSnapshot } from "@/lib/strategy/experiment";
+import { createEngineState, runPaperEngineCycle, strategyEngines } from "@/lib/strategy/runner";
+import type { StrategyEngineId } from "@/lib/strategy/types";
 import type { BotExecutionResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -60,12 +63,17 @@ async function runEndOfCycleCleanup(cycleKey: string) {
   }
 }
 
+function routingReason(reason: ReturnType<typeof getExchangeRoutingState>["reason"]) {
+  if (reason === "trading_disabled") return "TRADING_ENABLED is not true; decision recorded without an order.";
+  if (reason === "execution_engine_none") return "EXCHANGE_EXECUTION_ENGINE is none; decision recorded without an order.";
+  if (reason === "engine_not_selected") return "This decision engine is not selected for exchange execution.";
+  if (reason === "ab_test_lock") return "A/B safety lock suppressed exchange routing.";
+  return "Exchange routing allowed.";
+}
+
 export async function GET(request: Request) {
   if (!process.env.CRON_SECRET?.trim()) {
-    return NextResponse.json(
-      { success: false, error: "CRON_SECRET is not configured." },
-      { status: 503 },
-    );
+    return NextResponse.json({ success: false, error: "CRON_SECRET is not configured." }, { status: 503 });
   }
   if (!isAuthorized(request)) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
@@ -85,9 +93,9 @@ export async function GET(request: Request) {
     }
 
     const trading = getTradingConfig();
-    const pricePromise = getSpotPrices();
+    const strategy = getStrategyRuntimeConfig();
     const [prices, activity, fetchedIndicators, fees, cachedMacro, previousMarketState] = await Promise.all([
-      pricePromise,
+      getSpotPrices(),
       getSpotActivity(),
       new MarketDataAggregator().fetchAll(),
       getSpotFeeRates(),
@@ -105,31 +113,99 @@ export async function GET(request: Request) {
         macro = cachedMacro ? markMacroStateStale(cachedMacro, message) : createUnavailableMacroState(message);
       }
     }
+
     const balances = await getSpotBalances(prices);
     const capturedAt = new Date().toISOString();
     const totalPortfolioUsdt = calculatePortfolioTotal(balances);
-
     await Promise.all([
-      savePortfolioSnapshot(cycleKey, {
-        capturedAt,
-        totalPortfolioUsdt,
-        balances,
-        prices,
-      }),
+      savePortfolioSnapshot(cycleKey, { capturedAt, totalPortfolioUsdt, balances, prices }),
       upsertOrders(activity.orders),
     ]);
+    const snapshotId = await saveSharedMarketSnapshot({ cycleKey, capturedAt, prices, indicators, fees, macro });
+    const accountEnvironment = getAccountEnvironment();
+
+    if (strategy.runMode === "ab_test") {
+      const engineVersions = {
+        model1: strategyEngines.model1.version,
+        model2: strategyEngines.model2.version,
+      };
+      await ensureStrategyExperiment({
+        experimentId: strategy.experimentId,
+        initialCapitalUsdt: strategy.initialCapitalUsdt,
+        minimumDays: strategy.minimumDays,
+        minimumFilledOrdersPerEngine: strategy.minimumFilledOrdersPerEngine,
+      }, engineVersions);
+      const settled = await Promise.allSettled(strategy.activeEngines.map((engineId) => runPaperEngineCycle(engineId, {
+        experimentId: strategy.experimentId,
+        cycleKey,
+        snapshotId,
+        capturedAt,
+        executionEnvironment: accountEnvironment,
+        prices,
+        indicators,
+        fees,
+        macro,
+      })));
+      const engineOutcomes = settled.map((outcome, index) => {
+        const engineId = strategy.activeEngines[index];
+        return outcome.status === "fulfilled"
+          ? {
+              engineId,
+              status: "completed" as const,
+              engineVersion: outcome.value.result.engineVersion,
+              model: outcome.value.result.model,
+              usage: outcome.value.result.usage,
+              latencyMs: outcome.value.result.latencyMs,
+              totalPortfolioUsdt: outcome.value.totalPortfolioUsdt,
+              decisions: outcome.value.result.decisions,
+              executions: outcome.value.executions,
+            }
+          : {
+              engineId,
+              status: "failed" as const,
+              engineVersion: strategyEngines[engineId].version,
+              error: getSafeErrorMessage(outcome.reason, `${engineId} failed`),
+            };
+      });
+      const [portfolioRisk, storedOrders] = await Promise.all([
+        getPortfolioRiskContext(totalPortfolioUsdt),
+        getStoredOrders(500),
+      ]);
+      const positions = buildPositionContexts(balances, storedOrders, totalPortfolioUsdt);
+      await completeBotRun(
+        cycleKey,
+        `ab_test:${engineVersions.model1}|${engineVersions.model2}`,
+        indicators,
+        { positions, fees, portfolioRisk, macro },
+        [],
+        [],
+      );
+      const cleanup = await runEndOfCycleCleanup(cycleKey);
+      return NextResponse.json({
+        success: true,
+        cycleKey,
+        capturedAt,
+        runMode: strategy.runMode,
+        experimentId: strategy.experimentId,
+        exchangeRoutingAllowed: false,
+        exchangeRoutingReason: "ab_test_lock",
+        sharedSnapshotId: snapshotId,
+        realPortfolioUsdt: totalPortfolioUsdt,
+        engines: engineOutcomes,
+        cleanup,
+      });
+    }
+
+    const engineId = strategy.runMode as StrategyEngineId;
+    const engine = strategyEngines[engineId];
     const [portfolioRisk, storedOrders] = await Promise.all([
       getPortfolioRiskContext(totalPortfolioUsdt),
       getStoredOrders(500),
     ]);
     const positions = buildPositionContexts(balances, storedOrders, totalPortfolioUsdt);
-    const decisionContext = { positions, fees, portfolioRisk, macro };
-
-    const accountEnvironment = getAccountEnvironment();
-    const jev = await evaluateTradingState({
+    const state = createEngineState({
       observedAt: capturedAt,
       executionEnvironment: accountEnvironment,
-      marketSource: "bybit-mainnet",
       balances,
       prices,
       openOrders: activity.openOrders,
@@ -139,32 +215,21 @@ export async function GET(request: Request) {
       portfolioRisk,
       macro,
     });
-
+    const result = await engine.evaluate(state);
+    const routing = getExchangeRoutingState(engineId, strategy, trading.enabled);
     const openSymbols = new Set(activity.openOrders.map((order) => order.symbol));
     let executions: BotExecutionResult[] = [];
     const riskBalances = balances.map((balance) => ({ ...balance }));
     let submittedBuyCount = 0;
 
-    for (const decision of rankDecisionsForExecution(jev.decisions)) {
+    for (const decision of rankDecisionsForExecution(result.decisions)) {
       const symbol = SYMBOLS[decision.asset];
-      if (!trading.enabled) {
-        executions.push({
-          asset: decision.asset,
-          symbol,
-          action: decision.action,
-          status: "disabled",
-          reason: "TRADING_ENABLED is not true; decision recorded without an order.",
-        });
+      if (!routing.allowed) {
+        executions.push({ engineId, asset: decision.asset, symbol, action: decision.action, status: "disabled", reason: routingReason(routing.reason) });
         continue;
       }
       if (decision.action === "buy" && submittedBuyCount >= trading.maxBuysPerCycle) {
-        executions.push({
-          asset: decision.asset,
-          symbol,
-          action: decision.action,
-          status: "skipped",
-          reason: "A higher-ranked buy already consumed this cycle's new-exposure budget.",
-        });
+        executions.push({ engineId, asset: decision.asset, symbol, action: decision.action, status: "skipped", reason: "A higher-ranked buy already consumed this cycle's new-exposure budget." });
         continue;
       }
       const plan = createExecutionPlan(
@@ -173,57 +238,30 @@ export async function GET(request: Request) {
         riskBalances,
         totalPortfolioUsdt,
         trading,
-        {
-          position: positions[decision.asset],
-          fee: fees[decision.asset],
-          portfolioRisk,
-        },
+        { position: positions[decision.asset], fee: fees[decision.asset], portfolioRisk },
       );
       if (!plan.allowed) {
-        executions.push({
-          asset: decision.asset,
-          symbol,
-          action: decision.action,
-          status: decision.action === "hold" ? "held" : "skipped",
-          reason: plan.reason,
-        });
+        executions.push({ engineId, asset: decision.asset, symbol, action: decision.action, status: decision.action === "hold" ? "held" : "skipped", reason: plan.reason });
         continue;
       }
       if (openSymbols.has(symbol)) {
-        executions.push({
-          asset: decision.asset,
-          symbol,
-          action: decision.action,
-          status: "skipped",
-          reason: "An open order already exists for this symbol.",
-        });
+        executions.push({ engineId, asset: decision.asset, symbol, action: decision.action, status: "skipped", reason: "An open order already exists for this symbol." });
         continue;
       }
 
-      const orderLinkId = `jev-${new Date(cycleKey).getTime()}-${decision.asset.toLowerCase()}`;
+      const orderLinkId = `jev-${engineId}-${new Date(cycleKey).getTime()}-${decision.asset.toLowerCase()}`;
       try {
-        const result = decision.action === "buy"
-          ? await executeMarketBuy(
-              decision.asset,
-              plan.buyPctOfUsdt,
-              trading.minTradeUsdt,
-              orderLinkId,
-              trading.maxMarketSlippagePct,
-            )
-          : await executeMarketSell(
-            decision.asset,
-              plan.sellPctOfHolding,
-              trading.minTradeUsdt,
-              orderLinkId,
-              trading.maxMarketSlippagePct,
-            );
+        const order = decision.action === "buy"
+          ? await executeMarketBuy(decision.asset, plan.buyPctOfUsdt, trading.minTradeUsdt, orderLinkId, trading.maxMarketSlippagePct)
+          : await executeMarketSell(decision.asset, plan.sellPctOfHolding, trading.minTradeUsdt, orderLinkId, trading.maxMarketSlippagePct);
         executions.push({
+          engineId,
           asset: decision.asset,
           symbol,
           action: decision.action,
           status: "submitted",
           reason: `${plan.reason} Validated market order submitted to the configured Bybit account.`,
-          orderId: result.orderId,
+          orderId: order.orderId,
           orderLinkId,
         });
         openSymbols.add(symbol);
@@ -244,14 +282,7 @@ export async function GET(request: Request) {
           usdtBalance.usdtValue += proceeds;
         }
       } catch (error) {
-        executions.push({
-          asset: decision.asset,
-          symbol,
-          action: decision.action,
-          status: "failed",
-          reason: getSafeErrorMessage(error, "Unknown execution error"),
-          orderLinkId,
-        });
+        executions.push({ engineId, asset: decision.asset, symbol, action: decision.action, status: "failed", reason: getSafeErrorMessage(error, "Unknown execution error"), orderLinkId });
       }
     }
 
@@ -261,13 +292,12 @@ export async function GET(request: Request) {
       await upsertOrders(refreshedActivity.orders);
       executions = reconcileExecutions(executions, refreshedActivity.orders);
     }
-
     await completeBotRun(
       cycleKey,
-      jev.model,
+      `${result.engineVersion}:${result.model}`,
       indicators,
-      { ...decisionContext, portfolioJudgments: jev.portfolioJudgments },
-      jev.decisions,
+      { positions, fees, portfolioRisk, macro, portfolioJudgments: result.portfolioJudgments },
+      result.decisions,
       executions,
     );
     const cleanup = await runEndOfCycleCleanup(cycleKey);
@@ -277,20 +307,20 @@ export async function GET(request: Request) {
       capturedAt,
       accountEnvironment,
       marketSource: "bybit-mainnet",
+      runMode: strategy.runMode,
+      engineId,
+      engineVersion: result.engineVersion,
       tradingEnabled: trading.enabled,
+      exchangeRoutingAllowed: routing.allowed,
+      exchangeRoutingReason: routing.reason,
       totalPortfolioUsdt,
-      decisions: jev.decisions,
+      decisions: result.decisions,
       executions,
-      model: jev.model,
-      usage: jev.usage,
-      portfolioJudgments: jev.portfolioJudgments,
+      model: result.model,
+      usage: result.usage,
+      portfolioJudgments: result.portfolioJudgments,
+      sharedSnapshotId: snapshotId,
       cleanup,
-      macro: {
-        sourceObservedAt: macro.source_observed_at,
-        dataQuality: macro.data_quality,
-        policyRegime: macro.policy_regime,
-        goldRealYieldRegime: macro.gold_real_yield_regime,
-      },
     });
   } catch (error) {
     const message = getSafeErrorMessage(error, "Unknown cron failure");

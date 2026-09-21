@@ -394,3 +394,39 @@ The smoke command makes one Jev call; the full two-day replay makes 192. The ful
 9. Set `NEXT_PUBLIC_APP_URL` and replace the README live-deployment placeholder with the real Vercel URL.
 
 The repository's `vercel.json` selects only the `fra1` Frankfurt Function region and intentionally defines no native Vercel Cron, so it remains compatible with Hobby. Bybit blocks US-origin requests, so the default Vercel `iad1` region is not used. Scheduling is handled by cron-job.org.
+
+---
+
+## A/B motor kurulumu / A/B engine setup
+
+İlk ileriye dönük karşılaştırma için aynı değerleri yerelde ve Vercel Production Environment Variables alanında kullanın:
+
+```env
+STRATEGY_RUN_MODE=ab_test
+EXCHANGE_EXECUTION_ENGINE=none
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+AB_INITIAL_CAPITAL_USDT=1000
+AB_MIN_DAYS=42
+AB_MIN_FILLED_ORDERS_PER_ENGINE=30
+EXPERIMENT_DETAIL_RETENTION_DAYS=180
+```
+
+Şemayı deploy öncesinde hedef veritabanına bir kez uygulayın:
+
+```bash
+npm run db:setup
+```
+
+İlk başarılı cron çağrısı `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots` ve `engine_orders` kayıtlarını başlatır. `/api/health` cevabında `strategyRunMode=ab_test`, `exchangeRoutingAllowed=false` ve `exchangeRoutingReason=ab_test_lock` görülmelidir. Karşılaştırma ekranı `/models`, salt veri endpoint'i `/api/models/state` adresindedir.
+
+To run the forward comparison, configure the same variables locally and in Vercel Production, apply the schema once with `npm run db:setup`, and invoke the authenticated cron. The first successful cycle creates the experiment and both 1,000-USDT paper ledgers. Verify the hard lock through `/api/health` before observing results at `/models`.
+
+A/B tamamlandıktan sonra tek motor çalıştırmak için örnek:
+
+```env
+STRATEGY_RUN_MODE=model2
+EXCHANGE_EXECUTION_ENGINE=model2
+TRADING_ENABLED=true
+```
+
+Bu örnek yalnızca Demo Trading için kullanılmalıdır. `STRATEGY_RUN_MODE=ab_test` olduğu sürece diğer iki değer ne olursa olsun borsa iletimi kapalı kalır.

@@ -176,3 +176,21 @@ This is experimental reference software demonstrating a Jev integration, not inv
 See [INSTALL.md](./INSTALL.md) for local and Vercel setup.
 
 After enough consecutive snapshots have accumulated, run `npm run strategy:report` to inspect 15-minute, one-hour and four-hour cost-aware outcomes, calibration, context groups, turnover and observed drawdown. Fewer than 500 one-hour asset outcomes are explicitly reported as an insufficient sample; the report is diagnostic and is not proof of profitability.
+
+---
+
+## Model1 / Model2 A/B laboratuvarı
+
+`STRATEGY_RUN_MODE=model1` mevcut karar motorunu, `model2` rejim ve göreli güç odaklı rotasyon motorunu çalıştırır. `ab_test` modunda piyasa verileri bir kez toplanıp değişmez bir ortak snapshot olarak kaydedilir; Model1 ve Model2 aynı snapshot üzerinde Jev'den paralel karar ister. Her motorun 1000 USDT ile başlayan bağımsız paper portföyü, maliyet temeli, emirleri, ücretleri ve sermaye eğrisi vardır.
+
+A/B modunda gerçek borsa iletimi kod seviyesinde zorunlu olarak kapalıdır. `TRADING_ENABLED=true` veya `EXCHANGE_EXECUTION_ENGINE=model1|model2` girilmiş olsa bile paper emir `routing_status=suppressed_ab_test` ile kaydedilir ve yalnızca ilgili motorun sanal bakiyesini etkiler. Sonuçlar TR/EN destekli [`/models`](https://jev-trader-bybit.vercel.app/models) sayfasında karşılaştırılır.
+
+Önerilen ilk ileriye dönük gözlem süresi en az 42 gün ve motor başına en az 30 sanal gerçekleşmedir. Aktif deney kayıtları cleanup tarafından silinmez; tamamlanmış/iptal edilmiş deneyler `EXPERIMENT_DETAIL_RETENTION_DAYS` süresinden sonra temizlenebilir.
+
+## Model1 / Model2 A/B lab
+
+`STRATEGY_RUN_MODE=model1` runs the existing decision engine, while `model2` runs the regime and relative-strength rotation engine. In `ab_test` mode, market data is collected once and persisted as an immutable shared snapshot; both engines request independent Jev decisions against that same snapshot. Each engine owns an isolated paper portfolio, cost basis, order ledger, fees and equity curve seeded with 1,000 USDT.
+
+Exchange routing is unconditionally disabled in A/B mode. Even if `TRADING_ENABLED=true` or an exchange engine is selected, a paper order is stored with `routing_status=suppressed_ab_test` and affects only that engine's virtual balance. Compare the bilingual results at [`/models`](https://jev-trader-bybit.vercel.app/models).
+
+The initial forward observation requires at least 42 days and 30 simulated fills per engine. Cleanup never removes active experiments; completed or cancelled experiments become eligible after `EXPERIMENT_DETAIL_RETENTION_DAYS`.

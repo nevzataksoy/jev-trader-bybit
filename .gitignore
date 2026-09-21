@@ -41,4 +41,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+/YEDEK/
 Model2-rotasyon-botu-veri-ve-karar-motoru-raporu.md
+.vercel

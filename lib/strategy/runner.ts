@@ -21,6 +21,7 @@ import {
 } from "./experiment";
 import { strategyEngines } from "./registry.generated";
 import type { StrategyEngine, StrategyEngineId, StrategyEngineResult } from "./types";
+import { applyStatefulConfirmation } from "./pending";
 
 export { strategyEngines } from "./registry.generated";
 
@@ -82,7 +83,19 @@ export async function runPaperEngineCycle(
       portfolioRisk: paper.portfolioRisk,
       macro: shared.macro,
     });
-    const result = await engine.evaluate(state);
+    const evaluated = await engine.evaluate(state);
+    const result: StrategyEngineResult = {
+      ...evaluated,
+      decisions: await applyStatefulConfirmation({
+        scopeId: shared.experimentId,
+        experimentId: shared.experimentId,
+        engine,
+        cycleKey: shared.cycleKey,
+        capturedAt: shared.capturedAt,
+        decisions: evaluated.decisions,
+        indicators: shared.indicators,
+      }),
+    };
     const trading = getTradingConfig();
     const executions: BotExecutionResult[] = [];
     const workingBalances = paper.balances.map((balance) => ({ ...balance }));

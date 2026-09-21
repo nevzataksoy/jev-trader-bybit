@@ -12,6 +12,7 @@ export interface StrategyEngineResult extends JevResponse {
 export interface StrategyEngine {
   id: StrategyEngineId;
   version: string;
+  statefulConfirmation?: boolean;
   buildAuditState?(state: JevTradingState): unknown;
   evaluate(state: JevTradingState): Promise<StrategyEngineResult>;
 }

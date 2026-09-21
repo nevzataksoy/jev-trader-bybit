@@ -14,6 +14,24 @@ export type TradingSetup =
   | "reduce"
   | "none";
 export type EntryReadiness = "enter_now" | "wait_close" | "wait_retest" | "no_entry";
+export type DecisionBlocker =
+  | "JEV_NO_ENTRY"
+  | "PENDING_CLOSE"
+  | "PENDING_RETEST"
+  | "STRUCTURE_REJECTED"
+  | "DIRECTIONAL_EDGE_LOW"
+  | "SETUP_QUALITY_LOW"
+  | "NET_EDGE_LOW"
+  | "LIQUIDITY_LOW"
+  | "DISORDERLY_MARKET"
+  | "RISK_BUDGET_ZERO"
+  | "CONFIDENCE_BELOW_EXECUTION"
+  | "USDT_RESERVE"
+  | "ASSET_ALLOCATION_CAP"
+  | "ALLOCATION_DEADBAND"
+  | "MAX_BUYS_PER_CYCLE"
+  | "STALE_DATA";
+export type DecisionSignalState = "none" | "pending" | "confirmed" | "expired" | "invalidated";
 export type MamisPhase =
   | "returning_confidence"
   | "buy_the_dip"
@@ -241,6 +259,9 @@ export interface JevDecision {
   opportunityScore: number;
   grossRiskBudgetPct: number;
   policyReason: string;
+  blockedBy?: DecisionBlocker[];
+  readinessScore?: number;
+  signalState?: DecisionSignalState;
   judgments: JevAssetJudgments;
 }
 

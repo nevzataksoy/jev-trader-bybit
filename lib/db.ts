@@ -216,6 +216,30 @@ async function createSchema() {
       UNIQUE (experiment_id, cycle_key, engine_id, asset)
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS engine_pending_signals (
+      id BIGSERIAL PRIMARY KEY,
+      scope_id TEXT NOT NULL,
+      experiment_id TEXT REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
+      engine_id TEXT NOT NULL,
+      asset TEXT NOT NULL CHECK (asset IN ('BTC', 'ETH', 'XAUT')),
+      setup TEXT NOT NULL,
+      readiness TEXT NOT NULL CHECK (readiness IN ('wait_close', 'wait_retest')),
+      status TEXT NOT NULL CHECK (status IN ('active', 'confirmed', 'invalidated', 'expired', 'replaced')),
+      source_cycle_key TEXT NOT NULL,
+      source_candle_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      trigger_price NUMERIC(40, 18) NOT NULL,
+      anchor_price NUMERIC(40, 18) NOT NULL,
+      atr_pct NUMERIC(12, 6) NOT NULL,
+      source_decision JSONB NOT NULL,
+      retest_seen_at TIMESTAMPTZ,
+      resolved_at TIMESTAMPTZ,
+      resolution_cycle_key TEXT,
+      resolution_reason TEXT
+    )
+  `;
   await sql`CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC)`;
@@ -225,6 +249,8 @@ async function createSchema() {
   await sql`CREATE INDEX IF NOT EXISTS engine_runs_experiment_idx ON engine_runs(experiment_id, started_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS engine_equity_experiment_idx ON engine_equity_snapshots(experiment_id, engine_id, captured_at)`;
   await sql`CREATE INDEX IF NOT EXISTS engine_orders_experiment_idx ON engine_orders(experiment_id, engine_id, created_at DESC)`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS engine_pending_signals_active_idx ON engine_pending_signals(scope_id, engine_id, asset) WHERE status = 'active'`;
+  await sql`CREATE INDEX IF NOT EXISTS engine_pending_signals_history_idx ON engine_pending_signals(scope_id, engine_id, created_at DESC)`;
   await sql`ALTER TABLE bot_runs ADD COLUMN IF NOT EXISTS decision_context JSONB`;
   await sql`ALTER TABLE engine_runs DROP CONSTRAINT IF EXISTS engine_runs_engine_id_check`;
   await sql`ALTER TABLE engine_portfolios DROP CONSTRAINT IF EXISTS engine_portfolios_engine_id_check`;
@@ -235,6 +261,11 @@ async function createSchema() {
       version TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `;
+  await sql`
+    INSERT INTO app_schema_migrations (version)
+    VALUES ('20260921_stateful_confirmation_v3')
+    ON CONFLICT (version) DO NOTHING
   `;
   await sql.begin(async (transaction) => {
     await transaction`SELECT pg_advisory_xact_lock(1609212026)`;
@@ -498,6 +529,8 @@ export interface DatabaseCleanupResult {
   staleRunsClosed: number;
   expiredExperiments: number;
   orphanedMarketSnapshots: number;
+  expiredPendingSignals: number;
+  deletedPendingSignals: number;
 }
 
 export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
@@ -511,6 +544,8 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       staleRunsClosed: 0,
       expiredExperiments: 0,
       orphanedMarketSnapshots: 0,
+      expiredPendingSignals: 0,
+      deletedPendingSignals: 0,
     };
   }
   await ensureDatabase();
@@ -588,6 +623,18 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
         AND NOT EXISTS (SELECT 1 FROM engine_runs run WHERE run.snapshot_id = snapshot.id)
       RETURNING id
     `;
+    const expiredPendingSignals = await transaction`
+      UPDATE engine_pending_signals
+      SET status = 'expired', resolved_at = NOW(), resolution_reason = 'Expired by end-of-cycle cleanup.'
+      WHERE status = 'active' AND expires_at <= NOW()
+      RETURNING id
+    `;
+    const deletedPendingSignals = await transaction`
+      DELETE FROM engine_pending_signals
+      WHERE status <> 'active'
+        AND COALESCE(resolved_at, created_at) < NOW() - (LEAST(${retention.experimentRetentionDays}, 30) * INTERVAL '1 day')
+      RETURNING id
+    `;
     return {
       archivedDailySnapshots,
       expiredRuns: expiredRuns.length,
@@ -597,6 +644,8 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       staleRunsClosed: staleRuns.length,
       expiredExperiments: expiredExperiments.length,
       orphanedMarketSnapshots: orphanedMarketSnapshots.length,
+      expiredPendingSignals: expiredPendingSignals.length,
+      deletedPendingSignals: deletedPendingSignals.length,
     };
   });
 }

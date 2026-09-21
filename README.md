@@ -60,8 +60,8 @@ Jev yalnızca tipli bir karar üretir. Emir miktarı, izin verilen varlıklar, m
 - Hedef varlıklar kod seviyesinde USDT, BTC, ETH ve XAUT ile sınırlandırılmıştır.
 - Bybit’in sembol bazlı minimum miktar ve adım kuralları emirden önce okunur.
 - Market emirleri yapılandırılabilir Bybit yüzde kayma toleransı kullanır; emir kabulü gerçekleşme sayılmaz ve geçmiş/fill verisiyle uzlaştırılır.
-- Yeni alımlar komisyon, spread ve tahmini kaymaya karşı ATR/maliyet oranı; varlık cooldown'ı, 24 saatlik drawdown ve işlem sayısı sınırlarından geçer.
-- Risk azaltan satışlar önce yürütülür; bağımsız Jev alımları fırsat gücüne göre sıralanır ve bir çevrimdeki yeni pozisyon sayısı sınırlandırılır.
+- Yeni alımlar komisyon, spread ve tahmini kaymaya karşı ATR/maliyet oranı, 24 saatlik drawdown ve işlem sayısı sınırlarından geçer; zamana bağlı varlık cooldown'ı uygulanmaz.
+- İlk girişler normal kurulumda portföyün yaklaşık %15'i, güçlü kurulumda %20'siyle sınırlandırılır. Risk azaltan satışlar önce yürütülür; bağımsız Jev alımları fırsat gücüne göre sıralanır ve bir çevrimde en fazla iki yeni alım yapılır.
 - Cron endpoint’i yalnızca Vercel ortamındaki `CRON_SECRET` ile eşleşen Bearer başlığıyla çalışır.
 - API anahtarları hiçbir zaman istemci paketine veya dashboard cevabına eklenmez.
 - Her sahip olunan 15 dakikalık turun sonunda bakım çalışır: günlük sermaye kayıtları UTC ve Europe/Istanbul bazında uzun vadeli arşivlenir; ayrıntılı tur JSON'ları, tamamlanmış eski emirler ve makro snapshot'lar yapılandırılabilir saklama sürelerine göre temizlenir. Açık emirler cleanup tarafından silinmez.
@@ -149,8 +149,8 @@ Every successful cycle stores:
 - Missing critical data and provider errors fail closed.
 - Exchange instrument filters are loaded before sizing an order.
 - Market orders carry a configurable Bybit percentage slippage limit; acknowledgement is reconciled against order/fill history before being marked confirmed.
-- Buys must pass fee/spread/slippage range, per-asset cooldown, rolling drawdown and 24-hour order-count gates.
-- Risk-reduction sells run first; independent Jev buys are ranked and new exposure per cycle is capped.
+- Buys must pass fee/spread/slippage range, rolling drawdown and 24-hour order-count gates; there is no time-based per-asset cooldown.
+- Initial entries are capped near 15% of portfolio value, or 20% for strong setups. Risk-reduction sells run first; independent Jev buys are ranked and at most two new buys may execute per cycle.
 - The cron endpoint requires a Bearer header matching the `CRON_SECRET` stored in Vercel.
 - Secrets remain server-side and are never returned to the dashboard.
 - End-of-cycle maintenance archives daily equity in both UTC and Europe/Istanbul before expiring detailed run JSON, old completed orders and macro snapshots according to configurable retention periods. Open orders are never deleted by cleanup.
@@ -201,6 +201,10 @@ Motorlar `lib/strategy/models/*.ts` dosyalarından build öncesinde otomatik ke�
 
 Eski `model1` ve `model2` motorları karşılaştırma amacıyla korunur. `model1-blind` ve `model2-blind`; gerçek varlık kodu, sembol, fiyat, mutlak teknik seviye, ham miktar ve gerçek takvim bilgisini Jev'e göndermez. Getiriler, oynaklık, kanal konumu, göreli güç, işlem maliyeti ve diğer sayısal sinyaller gerçek serilerden hesaplanmaya devam eder. Jev yalnızca anonim piyasa uygunluğu üretir; varlık eşleme, portföy hedefi, risk ve emir kararı uygulama kodunda kalır.
 
+`model1-blind-v3` ve `model2-blind-v3`, V2 motorlarını değiştirmeden aynı anonim Jev kanıtlarını yeni stateful politika ile işler. `wait_close` ve `wait_retest` kararları `engine_pending_signals` tablosunda sırasıyla 30 ve 120 dakika yaşar; yalnızca daha sonraki kapanmış mum setup'a özel deterministik doğrulamayı geçerse paper alıma dönüşür. V3 motorları `zero=0%`, `low=25%`, `medium=50%`, `high=80%` ortak risk dönüşümünü kullanır ve her bekleme kararında `blockedBy` nedenlerini kaydeder.
+
 The strategy registry is generated from `lib/strategy/models/*.ts`. Add one contract-compatible file to add an engine, or delete that file to remove it. Legacy `model1` and `model2` remain available; `model1-blind` and `model2-blind` apply data-side asset and calendar masking while preserving normalized market evidence. Jev supplies typed evidence only, while deterministic application policy owns identity mapping, allocation, risk and execution.
+
+`model1-blind-v3` and `model2-blind-v3` preserve the V2 engines while applying a stateful policy to the same anonymous Jev evidence. `wait_close` and `wait_retest` signals persist for 30 and 120 minutes and become paper buys only after a later closed candle passes setup-specific deterministic confirmation. Both V3 engines share the `zero=0%`, `low=25%`, `medium=50%`, `high=80%` risk mapping and persist explicit `blockedBy` reasons.
 
 Geçmiş simülasyonda motor seçimi `BACKTEST_STRATEGY_ENGINE=model1-blind` ile yapılır; böylece production, paper A/B ve backtest aynı dosya tabanlı motor sözleşmesini kullanır.

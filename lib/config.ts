@@ -23,6 +23,8 @@ export function getTradingConfig() {
     enabled: process.env.TRADING_ENABLED === "true",
     minConfidence: numberFromEnv("MIN_CONFIDENCE_THRESHOLD", 0.72, 0, 1),
     buyPctOfUsdt: numberFromEnv("BUY_PCT_OF_USDT", 0.2, 0.01, 1),
+    initialEntryPctOfPortfolio: numberFromEnv("INITIAL_ENTRY_PCT_OF_PORTFOLIO", 0.15, 0.05, 0.5),
+    strongInitialEntryPctOfPortfolio: numberFromEnv("STRONG_INITIAL_ENTRY_PCT_OF_PORTFOLIO", 0.2, 0.05, 0.5),
     sellPctOfHolding: numberFromEnv("SELL_PCT_OF_HOLDING", 0.25, 0.01, 1),
     minTradeUsdt: numberFromEnv("MIN_TRADE_USDT", 5, 1, 10_000),
     minUsdtReservePct: numberFromEnv("MIN_USDT_RESERVE_PCT", 0.2, 0, 0.95),
@@ -35,9 +37,8 @@ export function getTradingConfig() {
     maxMarketSlippagePct: numberFromEnv("MAX_MARKET_SLIPPAGE_PCT", 0.2, 0.01, 10),
     minTradableRangeToCostRatio: numberFromEnv("MIN_TRADABLE_RANGE_TO_COST_RATIO", 2.5, 1, 20),
     maxPortfolioDrawdownPct: numberFromEnv("MAX_PORTFOLIO_DRAWDOWN_PCT", 3, 0.1, 50),
-    assetCooldownMinutes: numberFromEnv("ASSET_COOLDOWN_MINUTES", 60, 0, 10_080),
     maxCompletedOrders24h: numberFromEnv("MAX_COMPLETED_ORDERS_24H", 8, 1, 100),
-    maxBuysPerCycle: Math.round(numberFromEnv("MAX_BUYS_PER_CYCLE", 1, 1, 3)),
+    maxBuysPerCycle: Math.round(numberFromEnv("MAX_BUYS_PER_CYCLE", 2, 1, 3)),
     allocationDeadbandPct: numberFromEnv("ALLOCATION_DEADBAND_PCT", 3, 0.25, 25),
     minPolicyConfidence: numberFromEnv("MIN_POLICY_CONFIDENCE", 0.58, 0, 1),
     minSellConfidence: numberFromEnv("MIN_SELL_CONFIDENCE", 0.60, 0, 1),
@@ -47,6 +48,8 @@ export function getTradingConfig() {
     minLiquidityProbability: numberFromEnv("MIN_LIQUIDITY_PROBABILITY", 0.55, 0, 1),
     disorderlyProbability: numberFromEnv("DISORDERLY_PROBABILITY", 0.70, 0, 1),
     cutPositionProbability: numberFromEnv("CUT_POSITION_PROBABILITY", 0.72, 0, 1),
+    waitCloseTtlMinutes: Math.round(numberFromEnv("WAIT_CLOSE_TTL_MINUTES", 30, 15, 240)),
+    waitRetestTtlMinutes: Math.round(numberFromEnv("WAIT_RETEST_TTL_MINUTES", 120, 15, 720)),
     macroCacheHours: numberFromEnv("MACRO_CACHE_HOURS", 6, 1, 24),
   };
 }

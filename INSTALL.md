@@ -91,6 +91,8 @@ Uygulama çalışma anında da `CREATE TABLE IF NOT EXISTS` ile şemayı doğrul
 TRADING_ENABLED=false
 MIN_CONFIDENCE_THRESHOLD=0.72
 BUY_PCT_OF_USDT=0.20
+INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.15
+STRONG_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.20
 SELL_PCT_OF_HOLDING=0.25
 MIN_TRADE_USDT=5
 MIN_USDT_RESERVE_PCT=0.20
@@ -103,9 +105,8 @@ ESTIMATED_SLIPPAGE_PCT=0.03
 MAX_MARKET_SLIPPAGE_PCT=0.20
 MIN_TRADABLE_RANGE_TO_COST_RATIO=2.50
 MAX_PORTFOLIO_DRAWDOWN_PCT=3
-ASSET_COOLDOWN_MINUTES=60
 MAX_COMPLETED_ORDERS_24H=8
-MAX_BUYS_PER_CYCLE=1
+MAX_BUYS_PER_CYCLE=2
 ALLOCATION_DEADBAND_PCT=3
 MIN_POLICY_CONFIDENCE=0.58
 MIN_SELL_CONFIDENCE=0.60
@@ -115,6 +116,8 @@ MIN_EXPECTED_NET_EDGE_PCT=0.05
 MIN_LIQUIDITY_PROBABILITY=0.55
 DISORDERLY_PROBABILITY=0.70
 CUT_POSITION_PROBABILITY=0.72
+WAIT_CLOSE_TTL_MINUTES=30
+WAIT_RETEST_TTL_MINUTES=120
 MACRO_CACHE_HOURS=6
 BOT_RUN_RETENTION_DAYS=45
 DAILY_HISTORY_RETENTION_DAYS=1825
@@ -290,6 +293,8 @@ Start in observation mode:
 TRADING_ENABLED=false
 MIN_CONFIDENCE_THRESHOLD=0.72
 BUY_PCT_OF_USDT=0.20
+INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.15
+STRONG_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.20
 SELL_PCT_OF_HOLDING=0.25
 MIN_TRADE_USDT=5
 MIN_USDT_RESERVE_PCT=0.20
@@ -302,9 +307,8 @@ ESTIMATED_SLIPPAGE_PCT=0.03
 MAX_MARKET_SLIPPAGE_PCT=0.20
 MIN_TRADABLE_RANGE_TO_COST_RATIO=2.50
 MAX_PORTFOLIO_DRAWDOWN_PCT=3
-ASSET_COOLDOWN_MINUTES=60
 MAX_COMPLETED_ORDERS_24H=8
-MAX_BUYS_PER_CYCLE=1
+MAX_BUYS_PER_CYCLE=2
 ALLOCATION_DEADBAND_PCT=3
 MIN_POLICY_CONFIDENCE=0.58
 MIN_SELL_CONFIDENCE=0.60
@@ -314,6 +318,8 @@ MIN_EXPECTED_NET_EDGE_PCT=0.05
 MIN_LIQUIDITY_PROBABILITY=0.55
 DISORDERLY_PROBABILITY=0.70
 CUT_POSITION_PROBABILITY=0.72
+WAIT_CLOSE_TTL_MINUTES=30
+WAIT_RETEST_TTL_MINUTES=120
 MACRO_CACHE_HOURS=6
 BOT_RUN_RETENTION_DAYS=45
 DAILY_HISTORY_RETENTION_DAYS=1825
@@ -404,8 +410,8 @@ The repository's `vercel.json` selects only the `fra1` Frankfurt Function region
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_ENGINE_IDS=model1-blind,model2-blind
-AB_EXPERIMENT_ID=model1-blind-v2-vs-model2-blind-v2
+AB_ENGINE_IDS=model1-blind-v3,model2-blind-v3
+AB_EXPERIMENT_ID=model1-blind-v3-vs-model2-blind-v3
 AB_INITIAL_CAPITAL_USDT=1000
 AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
@@ -418,15 +424,15 @@ EXPERIMENT_DETAIL_RETENTION_DAYS=180
 npm run db:setup
 ```
 
-İlk başarılı cron çağrısı `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots` ve `engine_orders` kayıtlarını başlatır. `/api/health` cevabında `strategyRunMode=ab_test`, `exchangeRoutingAllowed=false` ve `exchangeRoutingReason=ab_test_lock` görülmelidir. Karşılaştırma ekranı `/models`, salt veri endpoint'i `/api/models/state` adresindedir.
+İlk başarılı cron çağrısı `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots`, `engine_orders` ve stateful doğrulama için `engine_pending_signals` kayıtlarını başlatır. `/api/health` cevabında `strategyRunMode=ab_test`, `exchangeRoutingAllowed=false` ve `exchangeRoutingReason=ab_test_lock` görülmelidir. Karşılaştırma ekranı `/models`, salt veri endpoint'i `/api/models/state` adresindedir.
 
 To run the forward comparison, configure the same variables locally and in Vercel Production, apply the schema once with `npm run db:setup`, and invoke the authenticated cron. The first successful cycle creates the experiment and both 1,000-USDT paper ledgers. Verify the hard lock through `/api/health` before observing results at `/models`.
 
 A/B tamamlandıktan sonra tek motor çalıştırmak için örnek:
 
 ```env
-STRATEGY_RUN_MODE=model2
-EXCHANGE_EXECUTION_ENGINE=model2
+STRATEGY_RUN_MODE=model2-blind-v3
+EXCHANGE_EXECUTION_ENGINE=model2-blind-v3
 TRADING_ENABLED=true
 ```
 

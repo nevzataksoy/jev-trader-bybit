@@ -18,7 +18,6 @@ export interface BlindCandidateNumericState {
     exposure_bucket: "none" | "small" | "medium" | "large";
     unrealized_pnl_pct: number | null;
     cost_basis_quality: PositionContext["cost_basis_quality"];
-    cooldown: "no_prior_trade" | "active" | "clear";
     open_order: boolean;
   };
   returns_pct: {
@@ -193,9 +192,6 @@ export function buildBlindNumericState(state: JevTradingState) {
         exposure_bucket: exposureBucket(position),
         unrealized_pnl_pct: position.unrealized_pnl_pct === null ? null : round(position.unrealized_pnl_pct),
         cost_basis_quality: position.cost_basis_quality,
-        cooldown: position.minutes_since_last_trade === null
-          ? "no_prior_trade"
-          : position.minutes_since_last_trade < config.assetCooldownMinutes ? "active" : "clear",
         open_order: state.openOrders.some((order) => order.symbol === market.symbol),
       },
       returns_pct: {

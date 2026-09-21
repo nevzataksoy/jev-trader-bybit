@@ -76,11 +76,6 @@ export function createExecutionPlan(
   if (context.portfolioRisk.completed_orders_24h >= config.maxCompletedOrders24h) {
     return deny("The 24-hour completed-order limit has been reached.");
   }
-  if (context.position.minutes_since_last_trade !== null
-    && context.position.minutes_since_last_trade < config.assetCooldownMinutes) {
-    return deny(`${decision.asset} is inside the configured post-trade cooldown.`);
-  }
-
   if (market.realized_volatility_24h_pct > config.maxDailyVolatilityPct) {
     return deny(`Daily realized volatility ${market.realized_volatility_24h_pct.toFixed(2)}% is above the risk ceiling.`);
   }
@@ -103,14 +98,24 @@ export function createExecutionPlan(
   const allocationCapacity = Math.max(0, totalPortfolioUsdt * config.maxAssetAllocationPct - (assetBalance?.usdtValue ?? 0));
   const volatilityScale = Math.min(1, config.targetDailyVolatilityPct / Math.max(market.realized_volatility_24h_pct, 0.1));
   const targetDeltaSpend = Math.max(0, decision.rebalanceDeltaPct) / 100 * totalPortfolioUsdt;
-  const desiredSpend = Math.min(freeUsdt * config.buyPctOfUsdt, targetDeltaSpend) * volatilityScale;
+  const isInitialEntry = context.position.status === "flat" || context.position.value_usdt < config.minTradeUsdt;
+  const strongInitialEntry = decision.judgments.setup_quality.score >= 3
+    && decision.confidence >= 0.75
+    && decision.judgments.liquidity_ok >= 0.75;
+  const initialTranchePct = strongInitialEntry
+    ? config.strongInitialEntryPctOfPortfolio
+    : config.initialEntryPctOfPortfolio;
+  const requestedSpend = isInitialEntry
+    ? totalPortfolioUsdt * initialTranchePct
+    : freeUsdt * config.buyPctOfUsdt;
+  const desiredSpend = Math.min(requestedSpend, targetDeltaSpend) * volatilityScale;
   const approvedSpend = Math.min(desiredSpend, spendableAfterReserve, allocationCapacity);
   if (approvedSpend < config.minTradeUsdt) {
     return deny("USDT reserve or per-asset allocation limit leaves no valid buy budget.");
   }
   return {
     allowed: true,
-    reason: `Buy passed target-allocation, reserve, source-age, cost, regime and volatility gates; size scaled to ${(volatilityScale * 100).toFixed(0)}%.`,
+    reason: `Buy passed target-allocation, reserve, source-age, cost, regime and volatility gates; ${isInitialEntry ? `${(initialTranchePct * 100).toFixed(0)}% initial tranche and ` : ""}size scaled to ${(volatilityScale * 100).toFixed(0)}%.`,
     buyPctOfUsdt: approvedSpend / freeUsdt,
     sellPctOfHolding: 0,
   };

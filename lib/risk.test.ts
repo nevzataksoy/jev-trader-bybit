@@ -6,6 +6,8 @@ const config = {
   enabled: true,
   minConfidence: 0.72,
   buyPctOfUsdt: 0.2,
+  initialEntryPctOfPortfolio: 0.15,
+  strongInitialEntryPctOfPortfolio: 0.2,
   sellPctOfHolding: 0.25,
   minTradeUsdt: 5,
   minUsdtReservePct: 0.2,
@@ -18,9 +20,8 @@ const config = {
   maxMarketSlippagePct: 0.2,
   minTradableRangeToCostRatio: 2.5,
   maxPortfolioDrawdownPct: 3,
-  assetCooldownMinutes: 60,
   maxCompletedOrders24h: 8,
-  maxBuysPerCycle: 1,
+  maxBuysPerCycle: 2,
   allocationDeadbandPct: 3,
   minPolicyConfidence: 0.58,
   minSellConfidence: 0.6,
@@ -30,6 +31,8 @@ const config = {
   minLiquidityProbability: 0.55,
   disorderlyProbability: 0.7,
   cutPositionProbability: 0.72,
+  waitCloseTtlMinutes: 30,
+  waitRetestTtlMinutes: 120,
   macroCacheHours: 6,
 };
 

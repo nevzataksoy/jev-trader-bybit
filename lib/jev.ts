@@ -218,9 +218,7 @@ export function buildSemanticState(state: JevTradingState) {
           position: positionPhrase(position),
           recent_trade: position.minutes_since_last_trade === null
             ? "no recent persisted trade"
-            : position.minutes_since_last_trade < risk.assetCooldownMinutes
-              ? "inside the post-trade cooldown"
-              : "outside the post-trade cooldown",
+            : "a prior persisted trade exists; no time-based cooldown is imposed",
           open_order: state.openOrders.some((order) => order.symbol === market.symbol)
             ? "an open order already exists"
             : "no open order exists",

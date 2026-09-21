@@ -1,5 +1,6 @@
 import type { ExecutionPlan } from "../risk";
 import { ensureDatabase, getSql, isDatabaseConfigured } from "../db";
+import { asPostgresJson } from "../postgres-json";
 import type {
   AssetId,
   BotExecutionResult,
@@ -174,8 +175,8 @@ export async function ensureStrategyExperiment(
       ) VALUES (
         ${config.experimentId}, 'running', ${config.initialCapitalUsdt}, NOW(),
         NOW() + (${config.minimumDays} * INTERVAL '1 day'),
-        ${JSON.stringify(requestedEngineVersions)}::jsonb,
-        ${JSON.stringify({ engineIds: Object.keys(requestedEngineVersions), minimumDays: config.minimumDays, minimumFilledOrdersPerEngine: config.minimumFilledOrdersPerEngine })}::jsonb
+        ${sql.json(asPostgresJson(requestedEngineVersions))},
+        ${sql.json(asPostgresJson({ engineIds: Object.keys(requestedEngineVersions), minimumDays: config.minimumDays, minimumFilledOrdersPerEngine: config.minimumFilledOrdersPerEngine }))}
       )
       ON CONFLICT (experiment_id) DO NOTHING
     `;
@@ -203,9 +204,9 @@ export async function saveSharedMarketSnapshot(input: SharedSnapshotInput) {
     INSERT INTO shared_market_snapshots (
       cycle_key, captured_at, prices, indicators, fees, macro, data_quality
     ) VALUES (
-      ${input.cycleKey}, ${input.capturedAt}::timestamptz, ${JSON.stringify(input.prices)}::jsonb,
-      ${JSON.stringify(input.indicators)}::jsonb, ${JSON.stringify(input.fees)}::jsonb,
-      ${JSON.stringify(input.macro)}::jsonb, ${JSON.stringify(dataQuality)}::jsonb
+      ${input.cycleKey}, ${input.capturedAt}::timestamptz, ${sql.json(asPostgresJson(input.prices))},
+      ${sql.json(asPostgresJson(input.indicators))}, ${sql.json(asPostgresJson(input.fees))},
+      ${sql.json(asPostgresJson(input.macro))}, ${sql.json(asPostgresJson(dataQuality))}
     )
     ON CONFLICT (cycle_key) DO UPDATE SET
       captured_at = EXCLUDED.captured_at,
@@ -254,11 +255,11 @@ export async function completeEngineRun(
   await sql`
     UPDATE engine_runs
     SET status = 'completed', completed_at = NOW(), jev_model = ${result.model}, latency_ms = ${result.latencyMs},
-        usage = ${JSON.stringify(result.usage)}::jsonb,
-        decision_context = ${JSON.stringify(context)}::jsonb,
-        decisions = ${JSON.stringify(result.decisions)}::jsonb,
-        portfolio_judgments = ${JSON.stringify(result.portfolioJudgments)}::jsonb,
-        executions = ${JSON.stringify(executions)}::jsonb,
+        usage = ${sql.json(asPostgresJson(result.usage))},
+        decision_context = ${sql.json(asPostgresJson(context))},
+        decisions = ${sql.json(asPostgresJson(result.decisions))},
+        portfolio_judgments = ${sql.json(asPostgresJson(result.portfolioJudgments))},
+        executions = ${sql.json(asPostgresJson(executions))},
         error = NULL
     WHERE experiment_id = ${experimentId} AND cycle_key = ${cycleKey} AND engine_id = ${result.engineId}
   `;
@@ -462,7 +463,7 @@ export async function savePaperEquitySnapshot(
     ) VALUES (
       ${experimentId}, ${cycleKey}, ${engineId}, ${capturedAt}::timestamptz, ${state.totalPortfolioUsdt},
       ${state.balances.find((balance) => balance.coin === "USDT")?.total ?? 0},
-      ${JSON.stringify(state.balances)}::jsonb, ${JSON.stringify(prices)}::jsonb,
+      ${sql.json(asPostgresJson(state.balances))}, ${sql.json(asPostgresJson(prices))},
       ${state.portfolioRisk.current_drawdown_pct}
     )
     ON CONFLICT (experiment_id, cycle_key, engine_id) DO UPDATE SET
@@ -529,8 +530,14 @@ export async function getModelsDashboardState(
              COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_runs,
              COUNT(*) FILTER (
                WHERE status = 'completed'
+                 AND jsonb_typeof(engine_runs.decisions) = 'array'
                  AND NOT EXISTS (
-                   SELECT 1 FROM jsonb_array_elements(decisions) AS decision
+                   SELECT 1 FROM jsonb_array_elements(
+                     CASE
+                       WHEN jsonb_typeof(engine_runs.decisions) = 'array' THEN engine_runs.decisions
+                       ELSE '[]'::jsonb
+                     END
+                   ) AS decision
                    WHERE decision->>'action' IN ('buy', 'sell')
                  )
              )::int AS abstention_runs,

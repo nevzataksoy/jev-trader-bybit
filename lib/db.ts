@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { getDatabaseMaintenanceConfig } from "./config";
 import { getSafeErrorMessage } from "./errors";
+import { asPostgresJson } from "./postgres-json";
 import type {
   BotExecutionResult,
   BotRunSummary,
@@ -229,6 +230,90 @@ async function createSchema() {
   await sql`ALTER TABLE engine_portfolios DROP CONSTRAINT IF EXISTS engine_portfolios_engine_id_check`;
   await sql`ALTER TABLE engine_equity_snapshots DROP CONSTRAINT IF EXISTS engine_equity_snapshots_engine_id_check`;
   await sql`ALTER TABLE engine_orders DROP CONSTRAINT IF EXISTS engine_orders_engine_id_check`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS app_schema_migrations (
+      version TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql.begin(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(1609212026)`;
+    const applied = await transaction`
+      SELECT 1 FROM app_schema_migrations
+      WHERE version = '20260921_native_jsonb_v1'
+    `;
+    if (applied.length) return;
+
+    await transaction`
+      UPDATE bot_runs SET
+        market_state = CASE WHEN jsonb_typeof(market_state) = 'string' THEN (market_state #>> '{}')::jsonb ELSE market_state END,
+        decision_context = CASE WHEN jsonb_typeof(decision_context) = 'string' THEN (decision_context #>> '{}')::jsonb ELSE decision_context END,
+        decisions = CASE WHEN jsonb_typeof(decisions) = 'string' THEN (decisions #>> '{}')::jsonb ELSE decisions END,
+        executions = CASE WHEN jsonb_typeof(executions) = 'string' THEN (executions #>> '{}')::jsonb ELSE executions END
+      WHERE jsonb_typeof(market_state) = 'string'
+         OR jsonb_typeof(decision_context) = 'string'
+         OR jsonb_typeof(decisions) = 'string'
+         OR jsonb_typeof(executions) = 'string'
+    `;
+    await transaction`
+      UPDATE portfolio_snapshots SET
+        balances = CASE WHEN jsonb_typeof(balances) = 'string' THEN (balances #>> '{}')::jsonb ELSE balances END,
+        prices = CASE WHEN jsonb_typeof(prices) = 'string' THEN (prices #>> '{}')::jsonb ELSE prices END
+      WHERE jsonb_typeof(balances) = 'string' OR jsonb_typeof(prices) = 'string'
+    `;
+    await transaction`
+      UPDATE macro_snapshots
+      SET state = (state #>> '{}')::jsonb
+      WHERE jsonb_typeof(state) = 'string'
+    `;
+    await transaction`
+      UPDATE daily_portfolio_snapshots
+      SET prices = (prices #>> '{}')::jsonb
+      WHERE jsonb_typeof(prices) = 'string'
+    `;
+    await transaction`
+      UPDATE strategy_experiments SET
+        engine_versions = CASE WHEN jsonb_typeof(engine_versions) = 'string' THEN (engine_versions #>> '{}')::jsonb ELSE engine_versions END,
+        configuration = CASE WHEN jsonb_typeof(configuration) = 'string' THEN (configuration #>> '{}')::jsonb ELSE configuration END
+      WHERE jsonb_typeof(engine_versions) = 'string' OR jsonb_typeof(configuration) = 'string'
+    `;
+    await transaction`
+      UPDATE shared_market_snapshots SET
+        prices = CASE WHEN jsonb_typeof(prices) = 'string' THEN (prices #>> '{}')::jsonb ELSE prices END,
+        indicators = CASE WHEN jsonb_typeof(indicators) = 'string' THEN (indicators #>> '{}')::jsonb ELSE indicators END,
+        fees = CASE WHEN jsonb_typeof(fees) = 'string' THEN (fees #>> '{}')::jsonb ELSE fees END,
+        macro = CASE WHEN jsonb_typeof(macro) = 'string' THEN (macro #>> '{}')::jsonb ELSE macro END,
+        data_quality = CASE WHEN jsonb_typeof(data_quality) = 'string' THEN (data_quality #>> '{}')::jsonb ELSE data_quality END
+      WHERE jsonb_typeof(prices) = 'string'
+         OR jsonb_typeof(indicators) = 'string'
+         OR jsonb_typeof(fees) = 'string'
+         OR jsonb_typeof(macro) = 'string'
+         OR jsonb_typeof(data_quality) = 'string'
+    `;
+    await transaction`
+      UPDATE engine_runs SET
+        usage = CASE WHEN jsonb_typeof(usage) = 'string' THEN (usage #>> '{}')::jsonb ELSE usage END,
+        decision_context = CASE WHEN jsonb_typeof(decision_context) = 'string' THEN (decision_context #>> '{}')::jsonb ELSE decision_context END,
+        decisions = CASE WHEN jsonb_typeof(decisions) = 'string' THEN (decisions #>> '{}')::jsonb ELSE decisions END,
+        portfolio_judgments = CASE WHEN jsonb_typeof(portfolio_judgments) = 'string' THEN (portfolio_judgments #>> '{}')::jsonb ELSE portfolio_judgments END,
+        executions = CASE WHEN jsonb_typeof(executions) = 'string' THEN (executions #>> '{}')::jsonb ELSE executions END
+      WHERE jsonb_typeof(usage) = 'string'
+         OR jsonb_typeof(decision_context) = 'string'
+         OR jsonb_typeof(decisions) = 'string'
+         OR jsonb_typeof(portfolio_judgments) = 'string'
+         OR jsonb_typeof(executions) = 'string'
+    `;
+    await transaction`
+      UPDATE engine_equity_snapshots SET
+        balances = CASE WHEN jsonb_typeof(balances) = 'string' THEN (balances #>> '{}')::jsonb ELSE balances END,
+        prices = CASE WHEN jsonb_typeof(prices) = 'string' THEN (prices #>> '{}')::jsonb ELSE prices END
+      WHERE jsonb_typeof(balances) = 'string' OR jsonb_typeof(prices) = 'string'
+    `;
+    await transaction`
+      INSERT INTO app_schema_migrations (version)
+      VALUES ('20260921_native_jsonb_v1')
+    `;
+  });
 }
 
 export async function saveMacroSnapshot(state: MacroState) {
@@ -237,7 +322,7 @@ export async function saveMacroSnapshot(state: MacroState) {
   const sql = getSql();
   await sql`
     INSERT INTO macro_snapshots (source_observed_at, collected_at, state)
-    VALUES (${state.source_observed_at}::timestamptz, ${state.collected_at}::timestamptz, ${JSON.stringify(state)}::jsonb)
+    VALUES (${state.source_observed_at}::timestamptz, ${state.collected_at}::timestamptz, ${sql.json(asPostgresJson(state))})
     ON CONFLICT (source_observed_at) DO UPDATE SET
       collected_at = EXCLUDED.collected_at,
       state = EXCLUDED.state
@@ -301,7 +386,7 @@ export async function savePortfolioSnapshot(cycleKey: string, snapshot: Portfoli
       cycle_key, captured_at, total_portfolio_usdt, balances, prices
     ) VALUES (
       ${cycleKey}, ${snapshot.capturedAt}::timestamptz, ${snapshot.totalPortfolioUsdt},
-      ${JSON.stringify(snapshot.balances)}::jsonb, ${JSON.stringify(snapshot.prices)}::jsonb
+      ${sql.json(asPostgresJson(snapshot.balances))}, ${sql.json(asPostgresJson(snapshot.prices))}
     )
     ON CONFLICT (cycle_key) DO UPDATE SET
       captured_at = EXCLUDED.captured_at,
@@ -323,10 +408,10 @@ export async function completeBotRun(
   await sql`
     UPDATE bot_runs
     SET completed_at = NOW(), status = 'completed', model = ${model},
-        market_state = ${JSON.stringify(marketState)}::jsonb,
-        decision_context = ${JSON.stringify(decisionContext)}::jsonb,
-        decisions = ${JSON.stringify(decisions)}::jsonb,
-        executions = ${JSON.stringify(executions)}::jsonb,
+        market_state = ${sql.json(asPostgresJson(marketState))},
+        decision_context = ${sql.json(asPostgresJson(decisionContext))},
+        decisions = ${sql.json(asPostgresJson(decisions))},
+        executions = ${sql.json(asPostgresJson(executions))},
         error = NULL
     WHERE cycle_key = ${cycleKey}
   `;

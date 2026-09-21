@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { asPostgresJson } from "../postgres-json";
 import type { HistoricalDataset, SimulationCycleRecord, SimulationSummary } from "./types";
 
 let client: ReturnType<typeof postgres> | null = null;
@@ -164,6 +165,61 @@ export async function ensureSimulationSchema() {
   `;
   await sql`CREATE INDEX IF NOT EXISTS simulation_cycles_run_idx ON simulation.cycles(run_id, cycle_at)`;
   await sql`CREATE INDEX IF NOT EXISTS simulation_orders_run_idx ON simulation.orders(run_id, cycle_at)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS simulation.schema_migrations (
+      version TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql.begin(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(2609212026)`;
+    const applied = await transaction`
+      SELECT 1 FROM simulation.schema_migrations
+      WHERE version = '20260921_native_jsonb_v1'
+    `;
+    if (applied.length) return;
+
+    await transaction`
+      UPDATE simulation.runs SET
+        config = CASE WHEN jsonb_typeof(config) = 'string' THEN (config #>> '{}')::jsonb ELSE config END,
+        summary = CASE WHEN jsonb_typeof(summary) = 'string' THEN (summary #>> '{}')::jsonb ELSE summary END
+      WHERE jsonb_typeof(config) = 'string' OR jsonb_typeof(summary) = 'string'
+    `;
+    await transaction`
+      UPDATE simulation.macro_points
+      SET values = (values #>> '{}')::jsonb
+      WHERE jsonb_typeof(values) = 'string'
+    `;
+    await transaction`
+      UPDATE simulation.cycles SET
+        semantic_state = CASE WHEN jsonb_typeof(semantic_state) = 'string' THEN (semantic_state #>> '{}')::jsonb ELSE semantic_state END,
+        macro_state = CASE WHEN jsonb_typeof(macro_state) = 'string' THEN (macro_state #>> '{}')::jsonb ELSE macro_state END,
+        portfolio_risk = CASE WHEN jsonb_typeof(portfolio_risk) = 'string' THEN (portfolio_risk #>> '{}')::jsonb ELSE portfolio_risk END
+      WHERE jsonb_typeof(semantic_state) = 'string'
+         OR jsonb_typeof(macro_state) = 'string'
+         OR jsonb_typeof(portfolio_risk) = 'string'
+    `;
+    await transaction`
+      UPDATE simulation.market_snapshots
+      SET state = (state #>> '{}')::jsonb
+      WHERE jsonb_typeof(state) = 'string'
+    `;
+    await transaction`
+      UPDATE simulation.decisions
+      SET decision = (decision #>> '{}')::jsonb
+      WHERE jsonb_typeof(decision) = 'string'
+    `;
+    await transaction`
+      UPDATE simulation.portfolio_snapshots SET
+        balances = CASE WHEN jsonb_typeof(balances) = 'string' THEN (balances #>> '{}')::jsonb ELSE balances END,
+        prices = CASE WHEN jsonb_typeof(prices) = 'string' THEN (prices #>> '{}')::jsonb ELSE prices END
+      WHERE jsonb_typeof(balances) = 'string' OR jsonb_typeof(prices) = 'string'
+    `;
+    await transaction`
+      INSERT INTO simulation.schema_migrations (version)
+      VALUES ('20260921_native_jsonb_v1')
+    `;
+  });
 }
 
 export async function beginSimulationRun(
@@ -176,7 +232,7 @@ export async function beginSimulationRun(
   const sql = getSql();
   const rows = await sql`
     INSERT INTO simulation.runs (id, started_at, period_start, period_end, status, config)
-    VALUES (${runId}, NOW(), ${periodStart}::timestamptz, ${periodEnd}::timestamptz, 'running', ${JSON.stringify(config)}::jsonb)
+    VALUES (${runId}, NOW(), ${periodStart}::timestamptz, ${periodEnd}::timestamptz, 'running', ${sql.json(asPostgresJson(config))})
     ON CONFLICT (id) DO NOTHING
     RETURNING id
   `;
@@ -213,13 +269,13 @@ async function insertDerivativeRows(rows: Array<{
   `);
 }
 
-async function insertMacroRows(rows: Array<{ run_id: string; observed_on: string; values: string }>) {
+async function insertMacroRows(rows: Array<{ run_id: string; observed_on: string; values: unknown }>) {
   const sql = getSql();
   await inBatches(rows, async (batch) => {
     for (const row of batch) {
       await sql`
         INSERT INTO simulation.macro_points (run_id, observed_on, values)
-        VALUES (${row.run_id}, ${row.observed_on}::date, ${row.values}::jsonb)
+        VALUES (${row.run_id}, ${row.observed_on}::date, ${sql.json(asPostgresJson(row.values))})
         ON CONFLICT DO NOTHING
       `;
     }
@@ -240,7 +296,7 @@ export async function saveHistoricalDataset(runId: string, dataset: HistoricalDa
   ]);
   await insertDerivativeRows(derivativeRows);
 
-  const macroRows = dataset.macroRows.map((row) => ({ run_id: runId, observed_on: row.date, values: JSON.stringify(row) }));
+  const macroRows = dataset.macroRows.map((row) => ({ run_id: runId, observed_on: row.date, values: row }));
   await insertMacroRows(macroRows);
 }
 
@@ -253,8 +309,8 @@ export async function saveSimulationCycle(record: SimulationCycleRecord) {
         semantic_state, macro_state, portfolio_risk, equity_before_usdt, equity_after_usdt
       ) VALUES (
         ${record.runId}, ${record.cycleAt}::timestamptz, ${record.executionAt}::timestamptz,
-        ${record.model}, ${record.inputTokens}, ${record.outputTokens}, ${JSON.stringify(record.semanticState)}::jsonb,
-        ${JSON.stringify(record.macro)}::jsonb, ${JSON.stringify(record.portfolioRisk)}::jsonb,
+        ${record.model}, ${record.inputTokens}, ${record.outputTokens}, ${transaction.json(asPostgresJson(record.semanticState))},
+        ${transaction.json(asPostgresJson(record.macro))}, ${transaction.json(asPostgresJson(record.portfolioRisk))},
         ${record.equityBeforeUsdt}, ${record.equityAfterUsdt}
       ) ON CONFLICT (run_id, cycle_at) DO UPDATE SET
         model = EXCLUDED.model, input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
@@ -265,14 +321,14 @@ export async function saveSimulationCycle(record: SimulationCycleRecord) {
     for (const asset of Object.keys(record.marketState) as Array<keyof typeof record.marketState>) {
       await transaction`
         INSERT INTO simulation.market_snapshots (run_id, cycle_at, asset, state)
-        VALUES (${record.runId}, ${record.cycleAt}::timestamptz, ${asset}, ${JSON.stringify(record.marketState[asset])}::jsonb)
+        VALUES (${record.runId}, ${record.cycleAt}::timestamptz, ${asset}, ${transaction.json(asPostgresJson(record.marketState[asset]))})
         ON CONFLICT (run_id, cycle_at, asset) DO UPDATE SET state = EXCLUDED.state
       `;
     }
     for (const decision of record.decisions) {
       await transaction`
         INSERT INTO simulation.decisions (run_id, cycle_at, asset, decision)
-        VALUES (${record.runId}, ${record.cycleAt}::timestamptz, ${decision.asset}, ${JSON.stringify(decision)}::jsonb)
+        VALUES (${record.runId}, ${record.cycleAt}::timestamptz, ${decision.asset}, ${transaction.json(asPostgresJson(decision))})
         ON CONFLICT (run_id, cycle_at, asset) DO UPDATE SET decision = EXCLUDED.decision
       `;
     }
@@ -296,7 +352,7 @@ export async function saveSimulationCycle(record: SimulationCycleRecord) {
       await transaction`
         INSERT INTO simulation.portfolio_snapshots (run_id, cycle_at, phase, total_equity_usdt, balances, prices)
         VALUES (${record.runId}, ${record.cycleAt}::timestamptz, ${snapshot.phase}, ${snapshot.equity},
-          ${JSON.stringify(snapshot.balances)}::jsonb, ${JSON.stringify(record.prices)}::jsonb)
+          ${transaction.json(asPostgresJson(snapshot.balances))}, ${transaction.json(asPostgresJson(record.prices))})
         ON CONFLICT (run_id, cycle_at, phase) DO UPDATE SET
           total_equity_usdt = EXCLUDED.total_equity_usdt, balances = EXCLUDED.balances, prices = EXCLUDED.prices
       `;
@@ -308,7 +364,7 @@ export async function completeSimulationRun(summary: SimulationSummary) {
   const sql = getSql();
   await sql`
     UPDATE simulation.runs
-    SET completed_at = NOW(), status = 'completed', summary = ${JSON.stringify(summary)}::jsonb, error = NULL
+    SET completed_at = NOW(), status = 'completed', summary = ${sql.json(asPostgresJson(summary))}, error = NULL
     WHERE id = ${summary.runId}
   `;
 }

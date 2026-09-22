@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "bash scripts/temporary-vercel-quality.sh",
+  "buildCommand": "npm run lint && mkdir -p quality-output && printf '<h1>lint ok</h1>' > quality-output/index.html",
   "outputDirectory": "quality-output",
   "regions": ["fra1"]
 }

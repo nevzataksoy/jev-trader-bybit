@@ -121,6 +121,9 @@ export interface ExperimentRunItem {
 export interface ModelsDashboardState {
   generatedAt: string;
   runMode: string;
+  activeEngines: StrategyEngineId[];
+  availableEngines: StrategyEngineId[];
+  exchangeExecutionEngine: StrategyEngineId | "none";
   exchangeRoutingForcedOff: boolean;
   database: "connected" | "not_configured" | "error";
   message: string | null;

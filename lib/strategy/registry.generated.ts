@@ -2,10 +2,12 @@
 import type { StrategyEngine } from "./types";
 import engine1 from "./models/model1/v1";
 import engine2 from "./models/model2/v1";
+import engine3 from "./models/model2/v2";
 
 export const strategyEngines = {
   "model1-v1": engine1,
   "model2-v1": engine2,
+  "model2-v2": engine3,
 } satisfies Record<string, StrategyEngine>;
 
 for (const [id, engine] of Object.entries(strategyEngines)) {

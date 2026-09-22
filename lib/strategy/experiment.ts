@@ -482,7 +482,7 @@ export async function savePaperEquitySnapshot(
 
 export async function getModelsDashboardState(
   requestedExperimentId?: string,
-): Promise<Omit<ModelsDashboardState, "generatedAt" | "runMode" | "exchangeRoutingForcedOff" | "database" | "message">> {
+): Promise<Omit<ModelsDashboardState, "generatedAt" | "runMode" | "activeEngines" | "availableEngines" | "exchangeExecutionEngine" | "exchangeRoutingForcedOff" | "database" | "message">> {
   if (!isDatabaseConfigured()) return { experiment: null, engines: [], equity: [], orders: [], runs: [] };
   await ensureDatabase();
   const sql = getSql();

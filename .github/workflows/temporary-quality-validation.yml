@@ -13,10 +13,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-          cache: npm
-      - run: npm ci
-      - run: npm run quality
+      - name: Checkout without marketplace actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+      - name: Use Node 24
+        run: |
+          source "$NVM_DIR/nvm.sh"
+          nvm install 24
+          nvm use 24
+          node --version
+          npm --version
+      - name: Install dependencies and run quality
+        run: |
+          source "$NVM_DIR/nvm.sh"
+          nvm use 24
+          npm ci
+          npm run quality

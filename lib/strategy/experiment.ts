@@ -121,6 +121,9 @@ export interface ExperimentRunItem {
 export interface ModelsDashboardState {
   generatedAt: string;
   runMode: string;
+  activeEngines: StrategyEngineId[];
+  availableEngines: StrategyEngineId[];
+  exchangeExecutionEngine: StrategyEngineId | "none";
   exchangeRoutingForcedOff: boolean;
   database: "connected" | "not_configured" | "error";
   message: string | null;
@@ -479,7 +482,7 @@ export async function savePaperEquitySnapshot(
 
 export async function getModelsDashboardState(
   requestedExperimentId?: string,
-): Promise<Omit<ModelsDashboardState, "generatedAt" | "runMode" | "exchangeRoutingForcedOff" | "database" | "message">> {
+): Promise<Omit<ModelsDashboardState, "generatedAt" | "runMode" | "activeEngines" | "availableEngines" | "exchangeExecutionEngine" | "exchangeRoutingForcedOff" | "database" | "message">> {
   if (!isDatabaseConfigured()) return { experiment: null, engines: [], equity: [], orders: [], runs: [] };
   await ensureDatabase();
   const sql = getSql();

@@ -178,7 +178,7 @@ Tarihsel local backtest/simulation komutları bu temiz projede bulunmaz.
 5. İlk aşamada `TRADING_ENABLED=false`, `EXCHANGE_EXECUTION_ENGINE=none` bırakın.
 6. Deploy tamamlandıktan sonra `/api/health` çağırın.
 7. Yetkili bir `/api/cron` çağrısı yapın. DB tamamen boşsa bu çağrı runtime schema bootstrap'ını tetikleyebilir.
-8. `/models` ve `/api/models/state` üzerinde iki engine'in `model1-v1` ve `model2-v1` olduğunu doğrulayın.
+8. `/api/state` yanıtının bağlı Bybit hesabı/platform durumunu, `/models` ve `/api/models/state` yanıtının ise A/B `engine_runs` / paper karar geçmişini temsil ettiğini doğrulayın. `/api/models/state` içindeki `activeEngines`, `availableEngines` ve deney motorları yalnız `model1-v1` ile `model2-v1` olmalıdır.
 9. DB'de `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots`, `engine_orders` tablolarının oluştuğunu kontrol edin.
 10. cron-job.org Test Run yapın ve HTTP 200 doğrulayın.
 11. Birkaç çevrim boyunca Jev kararlarını, pending/confirmed akışını ve paper equity sonuçlarını gözlemleyin.
@@ -296,7 +296,7 @@ Historical local backtest/simulation commands are intentionally not part of this
 6. Keep `TRADING_ENABLED=false` and `EXCHANGE_EXECUTION_ENGINE=none` initially.
 7. Verify `/api/health`.
 8. Send one authenticated `/api/cron` request; on an empty database this can trigger runtime schema bootstrap.
-9. Verify `/models` and `/api/models/state` show `model1-v1` and `model2-v1`.
+9. Verify `/api/state` represents the configured Bybit account/platform surface while `/models` and `/api/models/state` represent A/B `engine_runs` and paper decision history. `activeEngines`, `availableEngines`, and the persisted experiment engines should contain only `model1-v1` and `model2-v1`.
 10. Confirm the experiment and engine tables exist in PostgreSQL.
 11. Run cron-job.org Test Run and confirm HTTP 200.
 12. Observe multiple paper cycles before making any execution-mode change.

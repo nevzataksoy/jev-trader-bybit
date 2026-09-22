@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # JEV TRADER BYBIT — Agent Project Context
 
-Updated: 2026-09-22 Europe/Istanbul  
+Updated: 2026-09-23 Europe/Istanbul  
 Repository: `nevzataksoy/jev-trader-bybit`  
 Default branch: `main`  
 Validated application baseline before this context-only update: `d09e3ae3132b7bc3ceae56610f45c83f12e0f453` (`fix: complete clean V1 refactor validation`).
@@ -137,6 +137,22 @@ Preferred flow:
 8. Never commit secrets, `.env.local`, API keys, DB credentials or cron secrets.
 
 For a multi-file atomic update with the GitHub connector, prefer creating blobs/tree/commit and then `update_ref(force=false)` rather than producing multiple unrelated commits.
+
+## Dashboard/API data-source contract
+
+The responsive dashboard review established an important A/B data-source boundary:
+
+- `/` and `/api/state` represent the configured Bybit account/platform surface: live prices, account balances/orders, connection state and general `bot_runs` cron history.
+- `/models` and `/api/models/state` are the authoritative A/B model surface: `engine_runs`, model decisions, paper portfolios/orders and equity.
+- In `ab_test`, do not interpret the main dashboard's `bot_runs.decisions` as the model decision history; those decisions live in `engine_runs`.
+- `/api/models/state` exposes runtime `activeEngines`, `availableEngines`, and `exchangeExecutionEngine` in addition to persisted experiment state so registry/DB drift can be detected.
+- Mobile UI uses disclosure badges for dense evidence/blocker/rationale groups rather than forcing ultra-wide tables.
+
+## Strategy review status
+
+No model strategy change was authorized in the 2026-09-23 UI/runtime review. Keep Model1 V1 and Model2 V1 behavior unchanged until the user approves a separate strategy revision.
+
+A code-level review identified a Model2 follow-up worth validating against live `engine_runs`: Model2's rotation-specific `buildDeterministicPortfolioJudgments` result is not used by `model2/v1/index.ts`, which rebuilds portfolio judgments through its V1 policy; and the normalization path can translate rotation evidence into a setup even when the intermediate deterministic rotation action is `hold`. Treat this as a candidate Model2 V2 semantic cleanup, not a parameter tweak, unless runtime evidence shows a simpler V1 calibration issue.
 
 ## Current operational next steps
 

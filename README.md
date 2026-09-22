@@ -127,6 +127,16 @@ AB_ENGINE_IDS=model1-v1,model2-v1
 AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
 ```
 
+### Dashboard ve runtime endpoint ayrımı
+
+A/B modunda ana dashboard ile A/B Lab farklı veri yüzeylerini gösterir:
+
+- `/` ve `/api/state`: yapılandırılmış Bybit hesabı, canlı fiyatlar, hesap emirleri, platform bağlantıları ve genel cron durumu.
+- `/models` ve `/api/models/state`: `engine_runs`, paper portföyler, paper emirler, equity ve model karar geçmişi.
+- `/api/health`: runtime konfigürasyonunun temel readiness/safety özetini verir.
+
+A/B modunda `bot_runs` içindeki ana dashboard kaydı model kararlarının authoritative geçmişi değildir. Model kararlarını ve A/B performansını incelerken `/api/models/state` kullanılmalıdır. Models API ayrıca runtime registry'deki aktif/kayıtlı motorları ve exchange execution engine seçimini döndürür; böylece DB deney kaydı ile çalışan registry karşılaştırılabilir.
+
 ### Veritabanı
 
 Temiz proje tek şema kaynağı olarak `database/schema.sql` kullanır. Geçmiş migration kayıtları ve upgrade SQL'leri kaldırılmıştır.
@@ -258,6 +268,16 @@ paper execution / persistence
 ```
 
 Real exchange routing is hard-disabled while `STRATEGY_RUN_MODE=ab_test`.
+
+### Dashboard and runtime endpoint split
+
+In A/B mode the main dashboard and A/B Lab intentionally expose different data surfaces:
+
+- `/` and `/api/state`: configured Bybit account, live prices, account orders, platform connections and the general cron state.
+- `/models` and `/api/models/state`: `engine_runs`, paper portfolios, paper orders, equity and model decision history.
+- `/api/health`: basic runtime configuration readiness and safety summary.
+
+During A/B runs, the main `bot_runs` record is not the authoritative model-decision history. Use `/api/models/state` for model decisions and A/B performance. The models API also exposes the active/registered runtime engines and selected exchange execution engine so the live registry can be compared with the persisted experiment.
 
 ### Database
 

@@ -9,9 +9,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const strategy = getStrategyRuntimeConfig();
-  const base: Pick<ModelsDashboardState, "generatedAt" | "runMode" | "exchangeRoutingForcedOff"> = {
+  const base: Pick<ModelsDashboardState, "generatedAt" | "runMode" | "activeEngines" | "availableEngines" | "exchangeExecutionEngine" | "exchangeRoutingForcedOff"> = {
     generatedAt: new Date().toISOString(),
     runMode: strategy.runMode,
+    activeEngines: strategy.activeEngines,
+    availableEngines: strategy.availableEngines,
+    exchangeExecutionEngine: strategy.executionEngine,
     exchangeRoutingForcedOff: strategy.runMode === "ab_test",
   };
   if (!isDatabaseConfigured()) {

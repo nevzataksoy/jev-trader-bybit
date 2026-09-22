@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { DetailBadge } from "@/app/components/detail-badge";
 import type {
   DashboardState,
   DailyPortfolioPoint,
@@ -18,6 +19,20 @@ const copy = {
     title: "Piyasa sinyallerini karara, kararı kontrollü aksiyona dönüştürür.",
     intro:
       "Canlı ana ağ verileri Jev tarafından değerlendirilir; doğrulanan kararlar yalnızca izole Bybit Demo Trading spot hesabında uygulanır.",
+    abIntro: "Canlı ana ağ verileri aynı snapshot üzerinden iki izole paper motor tarafından değerlendirilir. A/B modunda hiçbir model kararı Bybit hesabına yönlendirilmez.",
+    abPaper: "İzole A/B paper",
+    abRoutingOff: "A/B routing kilidi",
+    accountPortfolio: "Bağlı demo hesap portföyü",
+    abDecisionTitle: "A/B kararları ayrı deney kaydında",
+    abDecisionSub: "Bu dashboard hesap ve platform durumunu gösterir. Model karar geçmişinin authoritative kaynağı A/B Lab ekranı ve /api/models/state endpointidir.",
+    openLab: "A/B Lab kararlarını aç",
+    strategyDetails: "Runtime ayrıntıları",
+    runMode: "Çalışma modu",
+    activeEngines: "Aktif motorlar",
+    executionEngine: "Exchange motoru",
+    routingState: "Exchange routing",
+    accountOrders: "Bağlı hesap emir geçmişi",
+    accountOrdersSub: "A/B paper emirleri değildir; yalnız yapılandırılmış Bybit hesabından senkronlanan spot emirleridir.",
     refresh: "Verileri yenile",
     refreshing: "Yenileniyor",
     liveMarket: "Canlı piyasa verisi",
@@ -103,6 +118,20 @@ const copy = {
     title: "Turn market signals into decisions, and decisions into controlled action.",
     intro:
       "Live mainnet data is evaluated by Jev; validated decisions execute only inside an isolated Bybit Demo Trading spot account.",
+    abIntro: "The same live mainnet snapshot is evaluated by two isolated paper engines. In A/B mode no model decision is routed to the Bybit account.",
+    abPaper: "Isolated A/B paper",
+    abRoutingOff: "A/B routing lock",
+    accountPortfolio: "Connected demo account portfolio",
+    abDecisionTitle: "A/B decisions live in the experiment ledger",
+    abDecisionSub: "This dashboard shows account and platform state. The authoritative model decision history is the A/B Lab and /api/models/state.",
+    openLab: "Open A/B Lab decisions",
+    strategyDetails: "Runtime details",
+    runMode: "Run mode",
+    activeEngines: "Active engines",
+    executionEngine: "Exchange engine",
+    routingState: "Exchange routing",
+    accountOrders: "Connected account order history",
+    accountOrdersSub: "These are not A/B paper orders; they are spot orders synchronized from the configured Bybit account.",
     refresh: "Refresh data",
     refreshing: "Refreshing",
     liveMarket: "Live market data",
@@ -347,6 +376,7 @@ export default function Dashboard() {
   const [sideFilter, setSideFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const t = copy[lang];
+  const isAbTest = data.strategy.runMode === "ab_test";
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -436,12 +466,12 @@ export default function Dashboard() {
         <div className="hero-copy">
           <p className="eyebrow"><span />{t.eyebrow}</p>
           <h1>{t.title}</h1>
-          <p className="hero-intro">{t.intro}</p>
+          <p className="hero-intro">{isAbTest ? t.abIntro : t.intro}</p>
           <div className="signal-row">
             <span className="signal signal--live"><i />{t.liveMarket}</span>
-            <span className="signal"><i />{data.accountEnvironment.toUpperCase()} • {t.testExecution}</span>
-            <span className={data.tradingEnabled ? "signal signal--enabled" : "signal signal--muted"}>
-              <i />{data.tradingEnabled ? t.tradingOn : t.tradingOff}
+            <span className="signal"><i />{isAbTest ? `${t.abPaper} • ${data.strategy.activeEngines.join(" × ")}` : `${data.accountEnvironment.toUpperCase()} • ${t.testExecution}`}</span>
+            <span className={data.strategy.exchangeRoutingAllowed ? "signal signal--enabled" : "signal signal--muted"}>
+              <i />{data.strategy.exchangeRoutingAllowed ? t.tradingOn : isAbTest ? t.abRoutingOff : t.tradingOff}
             </span>
           </div>
         </div>
@@ -457,7 +487,7 @@ export default function Dashboard() {
 
       <section className="metric-grid">
         <article className="metric-card metric-card--primary">
-          <span>{t.portfolio}</span>
+          <span>{isAbTest ? t.accountPortfolio : t.portfolio}</span>
           <strong>{formatMoney(totalPortfolio, lang)} <small>USDT</small></strong>
           <div className="metric-foot"><span className="pulse-dot" />USDT • BTC • ETH • XAUT</div>
         </article>
@@ -498,7 +528,10 @@ export default function Dashboard() {
             <div><StatusDot status={data.connection.database} /><span><b>{t.database}</b><small>{statusLabel(data.connection.database, lang)}</small></span></div>
           </div>
           <div className="timestamp"><span>{t.updated}</span><b>{formatDate(data.generatedAt, lang)}</b></div>
-          <div className="data-route"><span>MARKET</span><i>→</i><b>JEV</b><i>→</i><span>{data.accountEnvironment.toUpperCase()}</span></div>
+          <DetailBadge label={t.strategyDetails} tone={isAbTest ? "success" : "info"} className="status-detail-badge">
+            <div className="detail-list"><span><small>{t.runMode}</small><b>{data.strategy.runMode}</b></span><span><small>{t.activeEngines}</small><b>{data.strategy.activeEngines.join(" × ") || "—"}</b></span><span><small>{t.executionEngine}</small><b>{data.strategy.executionEngine}</b></span><span><small>{t.routingState}</small><b>{data.strategy.exchangeRoutingAllowed ? "allowed" : data.strategy.exchangeRoutingReason}</b></span></div>
+          </DetailBadge>
+          <div className="data-route"><span>MARKET</span><i>→</i><b>JEV</b><i>→</i><span>{isAbTest ? "PAPER" : data.accountEnvironment.toUpperCase()}</span></div>
         </article>
       </section>
 
@@ -521,10 +554,12 @@ export default function Dashboard() {
 
       <section className="panel section-panel">
         <div className="panel-heading panel-heading--split">
-          <div><span className="section-kicker">SYSTEM ONE</span><h2>{t.intelligence}</h2><p>{t.intelligenceSub}</p></div>
-          <span className="model-chip">{t.model}: {latestRun?.model ?? "jev-1.13.0"} · {t.macroContext}: {latestRun?.decisionContext?.macro?.policy_regime?.replaceAll("_", " ") ?? "—"}</span>
+          <div><span className="section-kicker">SYSTEM ONE</span><h2>{isAbTest ? t.abDecisionTitle : t.intelligence}</h2><p>{isAbTest ? t.abDecisionSub : t.intelligenceSub}</p></div>
+          <span className="model-chip">{isAbTest ? data.strategy.activeEngines.map((engine) => engine.toUpperCase()).join(" × ") : `${t.model}: ${latestRun?.model ?? "jev-1.13.0"} · ${t.macroContext}: ${latestRun?.decisionContext?.macro?.policy_regime?.replaceAll("_", " ") ?? "—"}`}</span>
         </div>
-        {latestRun?.decisions.length ? (
+        {isAbTest ? (
+          <div className="ab-source-card"><div><strong>{t.abDecisionTitle}</strong><p>{t.abDecisionSub}</p></div><Link className="inline-action" href="/models">{t.openLab} →</Link></div>
+        ) : latestRun?.decisions.length ? (
           <div className="decision-grid">
             {latestRun.decisions.map((decision) => {
               const execution = latestRun.executions.find((item) => item.asset === decision.asset);
@@ -582,7 +617,7 @@ export default function Dashboard() {
 
       <section className="panel section-panel orders-panel">
         <div className="panel-heading panel-heading--split">
-          <div><span className="section-kicker">LEDGER</span><h2>{t.orders}</h2><p>{t.ordersSub}</p></div>
+          <div><span className="section-kicker">LEDGER</span><h2>{isAbTest ? t.accountOrders : t.orders}</h2><p>{isAbTest ? t.accountOrdersSub : t.ordersSub}</p></div>
           <div className="filters">
             <select value={symbolFilter} onChange={(event) => setSymbolFilter(event.target.value)}>
               <option value="ALL">{t.allSymbols}</option>

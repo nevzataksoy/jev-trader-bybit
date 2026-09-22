@@ -1,11 +1,11 @@
 import { getTradingConfig } from "../../config";
-import type { JevAssetJudgments, TradeAsset } from "../../types";
+import type { TradeAsset } from "../../types";
 import { TRADE_ASSETS } from "../../types";
 import { finalizeBlindRotationEvidence } from "../blind-policy";
 import { buildBlindModel2State, evaluateBlindModel2Evidence } from "../model2-blind-evaluator";
-import { buildRotationDecisions } from "../model2-policy";
+import { buildRotationJevJudgments } from "../model2-policy";
 import type { StrategyEngine } from "../types";
-import { buildV3Decisions, buildV3PortfolioJudgments } from "../v3-policy";
+import { buildStatefulDecisions, buildStatefulPortfolioJudgments } from "../stateful-policy";
 
 export const model2BlindV3Engine: StrategyEngine = {
   id: "model2-blind-v3",
@@ -16,18 +16,8 @@ export const model2BlindV3Engine: StrategyEngine = {
     const evidence = await evaluateBlindModel2Evidence(engineState);
     const finalized = finalizeBlindRotationEvidence(evidence.evidence, engineState.indicators, engineState.positions);
     const config = getTradingConfig();
-    const legacyEvidenceDecisions = buildRotationDecisions(
-      finalized.judgments,
-      finalized.portfolioJudgments,
-      engineState.indicators,
-      engineState.positions,
-      config,
-    );
-    const judgments = Object.fromEntries(legacyEvidenceDecisions.map((decision) => [
-      decision.asset,
-      decision.judgments,
-    ])) as Record<TradeAsset, JevAssetJudgments>;
-    const portfolioJudgments = buildV3PortfolioJudgments(judgments, config);
+    const judgments = buildRotationJevJudgments(finalized.judgments, engineState.indicators);
+    const portfolioJudgments = buildStatefulPortfolioJudgments(judgments, config);
     const feePctByAsset = Object.fromEntries(TRADE_ASSETS.map((asset) => [
       asset,
       engineState.fees[asset].taker_fee_pct,
@@ -36,8 +26,8 @@ export const model2BlindV3Engine: StrategyEngine = {
       engineId: "model2-blind-v3",
       engineVersion: "model2-rotation-blind-v3",
       model: evidence.model,
-      decisions: buildV3Decisions(
-        "model2",
+      decisions: buildStatefulDecisions(
+        { profile: "model2", revision: "V3" },
         judgments,
         portfolioJudgments,
         engineState.indicators,

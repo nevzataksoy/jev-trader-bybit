@@ -3,7 +3,7 @@ import type { JevAssetJudgments, TradeAsset } from "../../types";
 import { TRADE_ASSETS } from "../../types";
 import { buildBlindModel1State, evaluateBlindModel1Evidence } from "../model1-blind-evaluator";
 import type { StrategyEngine } from "../types";
-import { buildV3Decisions, buildV3PortfolioJudgments } from "../v3-policy";
+import { buildStatefulDecisions, buildStatefulPortfolioJudgments } from "../stateful-policy";
 
 export const model1BlindV3Engine: StrategyEngine = {
   id: "model1-blind-v3",
@@ -14,7 +14,7 @@ export const model1BlindV3Engine: StrategyEngine = {
     const evidence = await evaluateBlindModel1Evidence(engineState);
     const judgments = evidence.judgments as Record<TradeAsset, JevAssetJudgments>;
     const config = getTradingConfig();
-    const portfolioJudgments = buildV3PortfolioJudgments(judgments, config);
+    const portfolioJudgments = buildStatefulPortfolioJudgments(judgments, config);
     const feePctByAsset = Object.fromEntries(TRADE_ASSETS.map((asset) => [
       asset,
       engineState.fees[asset].taker_fee_pct,
@@ -23,8 +23,8 @@ export const model1BlindV3Engine: StrategyEngine = {
       engineId: "model1-blind-v3",
       engineVersion: "model1-blind-v3",
       model: evidence.model,
-      decisions: buildV3Decisions(
-        "model1",
+      decisions: buildStatefulDecisions(
+        { profile: "model1", revision: "V3" },
         judgments,
         portfolioJudgments,
         engineState.indicators,

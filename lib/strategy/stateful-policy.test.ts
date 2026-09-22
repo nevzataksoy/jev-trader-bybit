@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getTradingConfig } from "../config";
 import type { JevAssetJudgments, MarketIndicatorState, PositionContext, TradeAsset } from "../types";
 import { TRADE_ASSETS } from "../types";
-import { buildV3Decisions, buildV3PortfolioJudgments, unifiedRiskFraction } from "./v3-policy";
+import { buildStatefulDecisions, buildStatefulPortfolioJudgments, unifiedRiskFraction } from "./stateful-policy";
 
 function evidence(readiness: "enter_now" | "wait_close" | "wait_retest" | "no_entry"): JevAssetJudgments {
   const probabilities = readiness === "enter_now"
@@ -45,16 +45,16 @@ function flat(asset: TradeAsset): PositionContext {
   };
 }
 
-function run(readiness: Parameters<typeof evidence>[0], profile: "model1" | "model2" = "model1") {
+function run(readiness: Parameters<typeof evidence>[0], profile: "model1" | "model2" = "model1", revision = "V3") {
   const config = getTradingConfig();
   const judgments = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, evidence(asset === "BTC" ? readiness : "no_entry")])) as Record<TradeAsset, JevAssetJudgments>;
   const indicators = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, market(asset)])) as Record<TradeAsset, MarketIndicatorState>;
   const positions = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, flat(asset)])) as Record<TradeAsset, PositionContext>;
-  const portfolio = buildV3PortfolioJudgments(judgments, config);
-  return buildV3Decisions(profile, judgments, portfolio, indicators, positions, { BTC: 0.1, ETH: 0.1, XAUT: 0.1 }, config)[0];
+  const portfolio = buildStatefulPortfolioJudgments(judgments, config);
+  return buildStatefulDecisions({ profile, revision }, judgments, portfolio, indicators, positions, { BTC: 0.1, ETH: 0.1, XAUT: 0.1 }, config)[0];
 }
 
-describe("V3 stateful allocation policy", () => {
+describe("Stateful allocation policy", () => {
   it("reserves risk and emits a pending close signal instead of rejecting it", () => {
     const decision = run("wait_close");
     expect(decision.action).toBe("hold");
@@ -78,10 +78,18 @@ describe("V3 stateful allocation policy", () => {
     expect(decision.blockedBy).toContain("JEV_NO_ENTRY");
   });
 
-  it("uses one shared risk conversion for both V3 engines", () => {
+  it("uses one shared risk conversion for stateful engines", () => {
     expect(unifiedRiskFraction("zero")).toBe(0);
     expect(unifiedRiskFraction("low")).toBe(0.25);
     expect(unifiedRiskFraction("medium")).toBe(0.5);
     expect(unifiedRiskFraction("high")).toBe(0.8);
+  });
+
+  it("keeps audit rationale revision-specific without leaking V3 into V4", () => {
+    const v3 = run("enter_now", "model1", "V3");
+    const v4 = run("enter_now", "model2", "V4");
+    expect(v3.policyReason).toContain("Model1 V3;");
+    expect(v4.policyReason).toContain("Model2 V4 rotation;");
+    expect(v4.policyReason).not.toContain("V3");
   });
 });

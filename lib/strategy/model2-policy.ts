@@ -111,7 +111,7 @@ function evidenceProbabilities(judgment: RotationAssetJudgment, held: boolean): 
   return { buy: buy / total, sell: sell / total, hold: hold / total };
 }
 
-function toLegacyJudgments(
+function toJevAssetJudgments(
   judgment: RotationAssetJudgment,
   setup: TradingSetup,
 ): JevAssetJudgments {
@@ -167,6 +167,17 @@ function toLegacyJudgments(
       judgment.invalidationRisk,
     ),
   };
+}
+
+export function buildRotationJevJudgments(
+  judgments: Record<TradeAsset, RotationAssetJudgment>,
+  indicators: Record<TradeAsset, MarketIndicatorState>,
+): Record<TradeAsset, JevAssetJudgments> {
+  return Object.fromEntries(TRADE_ASSETS.map((asset) => {
+    const judgment = judgments[asset];
+    const setup = selectedSetup(judgment, indicators[asset]);
+    return [asset, toJevAssetJudgments(judgment, setup)];
+  })) as Record<TradeAsset, JevAssetJudgments>;
 }
 
 export function buildRotationDecisions(
@@ -254,7 +265,7 @@ export function buildRotationDecisions(
       grossRiskBudgetPct,
       policyReason: `Model2 rotation action ${judgment.action.choice}; regime ${judgment.regime.choice}; `
         + `plan quality ${judgment.planQuality.score}/4; target ${target.toFixed(2)}% versus current ${current.toFixed(2)}%.`,
-      judgments: toLegacyJudgments(judgment, setup),
+      judgments: toJevAssetJudgments(judgment, setup),
     };
   });
 }

@@ -1,4 +1,4 @@
-import { readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +25,12 @@ const models = files.map((file, index) => ({
 for (const model of models) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(model.id)) {
     throw new Error(`Strategy model filename must be a kebab-case engine id: ${model.file}`);
+  }
+  const source = await readFile(join(modelsDirectory, model.file), "utf8");
+  const siblingImports = [...source.matchAll(/(?:from\\s+["\']|import\\s+["\']|import\\s*\\(\\s*["\'])(\\.\\/[^"\']+)["\']/g)]
+    .map((match) => match[1]);
+  if (siblingImports.length) {
+    throw new Error(`Strategy model ${model.file} imports sibling model path(s): ${siblingImports.join(", ")}. Shared code must live outside lib/strategy/models so deleting one model file cannot break another.`);
   }
 }
 

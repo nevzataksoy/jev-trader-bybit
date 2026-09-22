@@ -438,8 +438,8 @@ TRADING_ENABLED=true
 
 Bu örnek yalnızca Demo Trading için kullanılmalıdır. `STRATEGY_RUN_MODE=ab_test` olduğu sürece diğer iki değer ne olursa olsun borsa iletimi kapalı kalır.
 
-Model dosyaları `lib/strategy/models` klasöründedir. `npm run dev`, `npm run build` ve kalite komutları öncesinde registry otomatik oluşturulur. Bir modeli kaldırmak için yalnızca ilgili `.ts` dosyasını silin. Aktif bir A/B deneyindeki motor setini değiştirirseniz eski kayıtlarla karışmaması için yeni bir `AB_EXPERIMENT_ID` kullanın; uygulama aynı deney kimliğini farklı motor setiyle kullanmayı reddeder.
+Model dosyaları `lib/strategy/models` klasöründedir. `npm run dev`, `npm run build` ve kalite komutları öncesinde registry otomatik oluşturulur. Bir modeli kaldırmak için yalnızca ilgili `.ts` dosyasını silin. Model dosyalarının birbirini doğrudan import etmesi registry üreticisi tarafından reddedilir; paylaşılan kod model klasörünün dışında tutulmalıdır. Aktif bir A/B deneyindeki motor setini değiştirirseniz eski kayıtlarla karışmaması için yeni bir `AB_EXPERIMENT_ID` kullanın; uygulama aynı deney kimliğini farklı motor setiyle kullanmayı reddeder.
 
-Strategy models live under `lib/strategy/models`. The registry is regenerated automatically before development, build and quality commands. Delete a model file to remove that engine. When changing the engines in an A/B test, use a new `AB_EXPERIMENT_ID`; the application rejects reusing an existing experiment id with a different engine set.
+Strategy models live under `lib/strategy/models`. The registry is regenerated automatically before development, build and quality commands. Delete a model file to remove that engine. Direct imports between sibling model files are rejected by the registry generator; shared code must live outside the model directory. When changing the engines in an A/B test, use a new `AB_EXPERIMENT_ID`; the application rejects reusing an existing experiment id with a different engine set.
 
 Backtest motorunu aynı registry üzerinden seçmek için `BACKTEST_STRATEGY_ENGINE=model1-blind` kullanın.

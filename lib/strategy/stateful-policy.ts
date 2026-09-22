@@ -17,9 +17,14 @@ import { TRADE_ASSETS } from "../types";
 
 type TradingConfig = ReturnType<typeof getTradingConfig>;
 
-export type V3PolicyProfile = "model1" | "model2";
+export type StatefulPolicyProfile = "model1" | "model2";
 
-interface V3Opportunity {
+export interface StatefulPolicyIdentity {
+  profile: StatefulPolicyProfile;
+  revision: string;
+}
+
+interface StatefulOpportunity {
   setup: TradingSetup;
   readiness: EntryReadiness;
   readinessScore: number;
@@ -112,7 +117,7 @@ function evaluateOpportunity(
   position: PositionContext,
   feePct: number,
   config: TradingConfig,
-): V3Opportunity {
+): StatefulOpportunity {
   const setup = judgments.best_setup.choice;
   const readiness = judgments.entry_readiness.choice;
   const readinessScore = readinessProbabilityScore(judgments);
@@ -193,7 +198,7 @@ function evaluateOpportunity(
   };
 }
 
-export function buildV3PortfolioJudgments(
+export function buildStatefulPortfolioJudgments(
   judgments: Record<TradeAsset, JevAssetJudgments>,
   config: TradingConfig,
 ): JevPortfolioJudgments {
@@ -263,8 +268,8 @@ function evidenceProbabilities(judgments: JevAssetJudgments, held: boolean): Rec
   return { buy: buyEvidence / total, sell: sellEvidence / total, hold: holdEvidence / total };
 }
 
-export function buildV3Decisions(
-  profile: V3PolicyProfile,
+export function buildStatefulDecisions(
+  identity: StatefulPolicyIdentity,
   judgments: Record<TradeAsset, JevAssetJudgments>,
   portfolioJudgments: JevPortfolioJudgments,
   indicators: Record<TradeAsset, MarketIndicatorState>,
@@ -272,9 +277,10 @@ export function buildV3Decisions(
   feePctByAsset: Record<TradeAsset, number>,
   config: TradingConfig,
 ): JevDecision[] {
+  const { profile, revision } = identity;
   const opportunities = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, evaluateOpportunity(
     judgments[asset], indicators[asset], positions[asset], feePctByAsset[asset], config,
-  )])) as Record<TradeAsset, V3Opportunity>;
+  )])) as Record<TradeAsset, StatefulOpportunity>;
   const maximumInvestedPct = (1 - config.minUsdtReservePct) * 100;
   const preferred = portfolioJudgments.preferred_destination.choice;
   const grossRiskBudgetPct = preferred === "USDT"
@@ -340,7 +346,7 @@ export function buildV3Decisions(
       readinessScore: opportunity.readinessScore,
       signalState: state,
       blockedBy: uniqueBlockers,
-      policyReason: `${profile === "model2" ? "Model2 V3 rotation" : "Model1 V3"}; readiness probability score ${opportunity.readinessScore.toFixed(3)}; `
+      policyReason: `${profile === "model2" ? `Model2 ${revision} rotation` : `Model1 ${revision}`}; readiness probability score ${opportunity.readinessScore.toFixed(3)}; `
         + `unified ${portfolioJudgments.gross_risk_budget.choice} risk budget ${grossRiskBudgetPct.toFixed(2)}%; `
         + `target ${target.toFixed(2)}% versus current ${current.toFixed(2)}%; `
         + (uniqueBlockers.length ? `blocked by ${uniqueBlockers.join(", ")}.` : "eligible for deterministic execution."),

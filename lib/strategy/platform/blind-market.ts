@@ -1,4 +1,4 @@
-import { getTradingConfig } from "../config";
+import { getTradingConfig } from "../../config";
 import type { JevTradingState } from "../../jev";
 import type { MarketIndicatorState, PositionContext, TradeAsset } from "../../types";
 import { TRADE_ASSETS } from "../../types";

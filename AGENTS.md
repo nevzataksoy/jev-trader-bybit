@@ -12,44 +12,87 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 Updated: 2026-09-23 Europe/Istanbul  
 Repository: `nevzataksoy/jev-trader-bybit`  
-Default branch: `main`  
-Validated application baseline before this context-only update: `d09e3ae3132b7bc3ceae56610f45c83f12e0f453` (`fix: complete clean V1 refactor validation`).
+Default branch: `main`
 
 ## Canonical reading order
 
-Before substantial work, inspect these files in this order:
+Before substantial work, inspect:
 
-1. `AGENTS.md` — operational and architectural constraints.
-2. `README.md` — current product architecture and strategy/platform split.
-3. `INSTALL.md` — environment, database, Vercel and cron deployment procedure.
-4. `.env.example` — canonical environment-variable surface.
-5. `package.json` — validation/build commands.
-6. `database/schema.sql` and `scripts/setup-db.mjs` — clean database baseline.
-7. `scripts/generate-strategy-registry.mjs` — model discovery/isolation enforcement.
-8. `lib/strategy/types.ts`, `lib/strategy/runner.ts`, `lib/risk.ts` — platform/model execution contract.
-9. The complete target model directory under `lib/strategy/models/<family>/<version>/`.
+1. `AGENTS.md`
+2. `README.md`
+3. `INSTALL.md`
+4. `.env.example`
+5. `package.json`
+6. `database/schema.sql` and `scripts/setup-db.mjs`
+7. `scripts/generate-strategy-registry.mjs`
+8. `lib/strategy/types.ts`, `lib/strategy/runner.ts`, `lib/risk.ts`
+9. The complete target model directory under `lib/strategy/models/<family>/<version>/`
 
-The persistent ChatGPT Library file `/JEV TRADER BYBIT/MEMORYBANK.md` is the handoff history/context source. It is intentionally not stored in this Git repository.
+The persistent ChatGPT Library file `/JEV TRADER BYBIT/MEMORYBANK.md` is the handoff history/context source and is intentionally outside Git.
 
-## Current clean-baseline architecture
+## Core invariants
 
-Historical strategy names V1/V2/V3/V4 and old `*-blind-v4` registry identities were removed from the clean project. Former V4 behavior is now the first clean version:
+- Trade universe: BTC, ETH, XAUT; USDT is cash/reserve.
+- Jev must not receive real instrument identity or calendar identity.
+- Jev sees anonymous candidate slots; reverse identity mapping stays application-side.
+- A/B mode must never route real orders to Bybit.
+- Each model version owns its complete strategy inside its own version directory.
+- A model version may not import another model family/version.
+- Shared code may contain model-independent platform infrastructure and hard safety gates only.
+- Execution ordering and strategy sizing are model-version responsibilities.
+- `lib/risk.ts` may cap/reject intent for platform safety but must not become a hidden strategy layer.
+- Never commit secrets, `.env.local`, API keys, DB credentials or cron secrets.
 
-- `model1-v1`
-- `model2-v1`
+## Current strategy versions
 
-Default A/B:
+Available engine directories:
+
+- `lib/strategy/models/model1/v1/` → `model1-v1`
+- `lib/strategy/models/model2/v1/` → `model2-v1`
+- `lib/strategy/models/model2/v2/` → `model2-v2`
+
+The generated registry discovers versions recursively and enforces cross-model/version isolation before dev/lint/typecheck/test/build.
+
+### Current production observation pair
+
+The existing production experiment remains:
 
 - `STRATEGY_RUN_MODE=ab_test`
 - `EXCHANGE_EXECUTION_ENGINE=none`
 - `AB_ENGINE_IDS=model1-v1,model2-v1`
 - `AB_EXPERIMENT_ID=model1-v1-vs-model2-v1`
 
-A/B mode must never route real exchange orders.
+Do not silently reuse that experiment id for a different engine pair.
 
-## Strategy ownership rule
+### Model2 V2 purpose
 
-A model version must own all strategic behavior in its own version directory, including:
+The first nine completed A/B cycles produced 27/27 HOLD decisions for each V1 engine. BTC and ETH repeatedly failed multiple structure/direction/setup/net-edge gates. XAUT repeatedly reached a `trend_pullback` with `wait_close` / `wait_retest`, but was usually stopped only by `NET_EDGE_LOW`; no pending signals or paper orders were produced.
+
+Model2 V2 is an evidence-driven semantic revision, not a threshold loosening:
+
+- preserves native rotation action through the final policy
+- adds explicit `watch` distinct from deterministic `hold`
+- prevents a native `hold` from being normalized back into a tradable setup
+- uses the rotation-native portfolio judgment instead of rebuilding a second generic portfolio judgment
+- lets a `watch` with positive gross expected edge remain pending while costs still make net edge non-executable
+- never promotes a pending signal while `NET_EDGE_LOW` remains
+- keeps the same numeric default thresholds as Model2 V1
+- persists useful V2 diagnostics in decision JSON such as rotation action/suitability/thesis health and gross expected edge
+
+Model1 V1 and Model2 V1 remain unchanged and are the stable baseline.
+
+To start a new V2 comparison after deployment, explicitly use a new experiment, for example:
+
+```env
+AB_ENGINE_IDS=model1-v1,model2-v2
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
+```
+
+Keep `TRADING_ENABLED=false`, `ALLOW_LIVE_TRADING=false`, and `EXCHANGE_EXECUTION_ENGINE=none`.
+
+## Strategy ownership
+
+A version directory owns:
 
 - Jev prompts/evidence interpretation
 - analysis/normalization
@@ -62,122 +105,79 @@ A model version must own all strategic behavior in its own version directory, in
 - model-specific configuration
 - final buy/hold/sell decisions
 
-Shared platform code may own only model-independent infrastructure such as market data, persistence, blind identity protection, orchestration, registry/discovery, and hard execution safety ceilings.
+The platform owns:
 
-Current version directories:
+- Bybit data acquisition and indicators
+- blind identity protection
+- persistence mechanics
+- A/B orchestration
+- registry/discovery
+- paper execution plumbing
+- exchange hard safety ceilings
 
-- `lib/strategy/models/model1/v1/`
-- `lib/strategy/models/model2/v1/`
+## Database and API contract
 
-They must not import another model family/version. The registry generator recursively validates this boundary before dev/lint/typecheck/test/build.
+Single schema source: `database/schema.sql`. Runtime initialization uses `CREATE TABLE IF NOT EXISTS`.
 
-Deleting one version directory should remove only that version. Deleting a model family should not break another family.
+Important experiment tables:
 
-## Blind Jev invariant
+- `strategy_experiments`
+- `shared_market_snapshots`
+- `engine_runs`
+- `engine_portfolios`
+- `engine_equity_snapshots`
+- `engine_orders`
+- `engine_pending_signals`
 
-Jev must not receive BTC/ETH/XAUT identity or calendar identity. Shared blind-market code maps assets to anonymous candidates and rejects forbidden identity-bearing payload fields/tokens.
+Dashboard/API boundary:
 
-Identity mapping stays application-side.
+- `/` and `/api/state`: configured Bybit account/platform surface and general `bot_runs`
+- `/models` and `/api/models/state`: authoritative A/B `engine_runs`, decisions, paper portfolios/orders/equity
+- `/api/health`: configuration/readiness summary only
 
-## Execution boundary
+In `ab_test`, do not treat `bot_runs.decisions` as the A/B model decision history.
 
-Model engines expose version-owned:
+## Validation and commit/push rule
 
-- `orderDecisions(...)`
-- `planExecution(...)`
-
-The shared `lib/risk.ts` layer only applies platform hard safety gates and caps the model's requested execution intent. Do not move strategic sizing/order ranking back into shared platform code.
-
-## Database baseline
-
-This is a zero-history clean DB design:
-
-- single schema source: `database/schema.sql`
-- no migration chain
-- no historical local backtest/simulation subsystem
-- runtime schema bootstrap uses `CREATE TABLE IF NOT EXISTS`
-- `npm run db:setup` is the explicit provisioning command
-
-Important strategy experiment tables include `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots`, `engine_orders`, and `engine_pending_signals`.
-
-## Validation rule before source-code commit/push
-
-For source changes, do not push an unvalidated fix to `main` if a safe validation path is available. The canonical gate is:
+Canonical local gate:
 
 ```bash
 npm run quality
 ```
 
-which runs:
+which runs lint + typecheck + test + build.
 
-```text
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-```
+If the execution environment cannot clone/run the repository, use an isolated validation branch and the available Vercel preview/build check before merging. Do not merge a failing preview.
 
-If the local execution environment cannot clone/run the repo, use an isolated validation branch or available CI/Vercel preview to run equivalent checks. Do not merge temporary CI/probe files into `main`.
+Preferred GitHub flow:
 
-The `d09e3ae` baseline was validated with all four gates passing and then received a successful Vercel deployment.
-
-## Commit/push procedure
-
-Use the authorized GitHub connector for repository inspection and writes when available.
-
-Preferred flow:
-
-1. Read current `main` HEAD and the exact files being changed.
-2. Make the smallest coherent change.
+1. Read current `main` HEAD and exact files being changed.
+2. Make the smallest coherent change on an isolated branch.
 3. Validate.
-4. If validation fails, fix all encountered relevant failures before final push.
-5. Commit only production-relevant files; exclude temporary validation helpers.
-6. Move `main` with a normal fast-forward update; never force-push unless the user explicitly requests it.
-7. Report the final commit SHA/message and Vercel status.
-8. Never commit secrets, `.env.local`, API keys, DB credentials or cron secrets.
+4. Fix relevant failures before merge.
+5. Commit only production-relevant files.
+6. Merge/fast-forward without force-push.
+7. Report final commit SHA/message and Vercel status.
 
-For a multi-file atomic update with the GitHub connector, prefer creating blobs/tree/commit and then `update_ref(force=false)` rather than producing multiple unrelated commits.
+## Runtime analysis guidance
 
-## Dashboard/API data-source contract
+For strategy-effectiveness work, trace where signals die:
 
-The responsive dashboard review established an important A/B data-source boundary:
+Jev evidence → normalization → setup/readiness → policy → blockers → pending/confirmation → allocation → version-owned execution intent → platform risk → paper execution → equity.
 
-- `/` and `/api/state` represent the configured Bybit account/platform surface: live prices, account balances/orders, connection state and general `bot_runs` cron history.
-- `/models` and `/api/models/state` are the authoritative A/B model surface: `engine_runs`, model decisions, paper portfolios/orders and equity.
-- In `ab_test`, do not interpret the main dashboard's `bot_runs.decisions` as the model decision history; those decisions live in `engine_runs`.
-- `/api/models/state` exposes runtime `activeEngines`, `availableEngines`, and `exchangeExecutionEngine` in addition to persisted experiment state so registry/DB drift can be detected.
-- Mobile UI uses disclosure badges for dense evidence/blocker/rationale groups rather than forcing ultra-wide tables.
+Do not lower safety or strategy thresholds merely to increase trade count. Treat small samples as diagnostic evidence, not proof of profitability.
 
-## Strategy review status
+For Model2 V2 specifically, compare against the stable V1 baseline using a new experiment id and inspect:
 
-No model strategy change was authorized in the 2026-09-23 UI/runtime review. Keep Model1 V1 and Model2 V1 behavior unchanged until the user approves a separate strategy revision.
+- `rotationAction`
+- `rotationSuitability`
+- `grossExpectedEdgePct`
+- `expectedNetEdgePct`
+- pending/confirmed/invalidated signal lifecycle
+- paper fills and equity only after the model produces executable decisions
 
-A code-level review identified a Model2 follow-up worth validating against live `engine_runs`: Model2's rotation-specific `buildDeterministicPortfolioJudgments` result is not used by `model2/v1/index.ts`, which rebuilds portfolio judgments through its V1 policy; and the normalization path can translate rotation evidence into a setup even when the intermediate deterministic rotation action is `hold`. Treat this as a candidate Model2 V2 semantic cleanup, not a parameter tweak, unless runtime evidence shows a simpler V1 calibration issue.
+## Known non-blocking follow-ups
 
-## Current operational next steps
-
-The code/build baseline is green. The next work is runtime/deployment verification, not another architecture rewrite:
-
-1. Verify Vercel Production env matches current `.env.example`.
-2. Keep `TRADING_ENABLED=false`, `ALLOW_LIVE_TRADING=false`, `STRATEGY_RUN_MODE=ab_test`, `EXCHANGE_EXECUTION_ENGINE=none`.
-3. Verify Neon/`DATABASE_URL`.
-4. Check `/api/health`.
-5. Invoke authenticated `/api/cron`; on a blank DB this may bootstrap schema.
-6. Verify `/models` and `/api/models/state` show only `model1-v1` and `model2-v1`.
-7. Verify experiment/engine/pending tables and first paper-cycle rows.
-8. Test cron-job.org HTTP 200 and 15-minute cadence.
-9. Observe paper A/B cycles before considering any real exchange routing.
-
-## Known architectural follow-ups, not blockers
-
-- Model confirmation modules currently perform persistence calls directly via shared DB helpers. A later cleanup may introduce a model-state persistence interface so strategy logic remains version-owned while persistence mechanics are platform-owned.
-- The registry isolation guard prevents cross-model/version imports, but it is not a strict whitelist of every permitted platform module. Tightening that boundary can be considered later.
-- Do not change these merely for aesthetics; first prioritize runtime correctness and observed A/B behavior.
-
-## Working style
-
-- Inspect before modifying.
-- Distinguish code facts from assumptions about Vercel env/runtime DB state.
-- Do not weaken risk gates just to increase trade count.
-- For strategy-effectiveness work, identify where signals die: evidence → policy → pending/confirmation → platform risk → execution.
-- At the end of substantial turns, summarize what changed, current status, unresolved risks, and concrete recommended next actions or information needed from the user.
+- Confirmation modules still call shared DB helpers directly; a later persistence-interface cleanup may improve the model/platform boundary.
+- Registry isolation prevents cross-version imports but is not a strict whitelist of all permitted platform modules.
+- Do not pursue these for aesthetics ahead of runtime correctness and A/B evidence.

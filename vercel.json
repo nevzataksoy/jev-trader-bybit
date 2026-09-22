@@ -1,4 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "bash scripts/temporary-vercel-quality.sh",
+  "outputDirectory": "quality-output",
   "regions": ["fra1"]
 }

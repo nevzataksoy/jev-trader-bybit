@@ -1,0 +1,22 @@
+name: Temporary quality validation
+
+on:
+  push:
+    branches:
+      - validation/quality-8babb9e
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run quality

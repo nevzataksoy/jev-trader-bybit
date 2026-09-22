@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "npm run typecheck > /tmp/typecheck.log 2>&1 || true; if grep -q '^lib/risk.test.ts' /tmp/typecheck.log; then mkdir -p quality-output && printf '<h1>match</h1>' > quality-output/index.html; exit 0; else cat /tmp/typecheck.log; exit 1; fi",
+  "buildCommand": "npm run typecheck > /tmp/typecheck.log 2>&1 || true; if grep -q '^lib/portfolio.test.ts' /tmp/typecheck.log; then mkdir -p quality-output && printf '<h1>match</h1>' > quality-output/index.html; exit 0; else cat /tmp/typecheck.log; exit 1; fi",
   "outputDirectory": "quality-output",
   "regions": ["fra1"]
 }

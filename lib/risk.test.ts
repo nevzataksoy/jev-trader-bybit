@@ -99,14 +99,14 @@ function decision(action: JevDecision["action"], confidence = 0.8): JevDecision 
 }
 
 describe("deterministic execution risk gates", () => {
-  it("volatility-scales buys while preserving the USDT reserve", () => {
+  it("executes the model target delta while preserving the USDT reserve", () => {
     const plan = createExecutionPlan(decision("buy"), market, balances, 1_000, config, context);
     expect(plan.allowed).toBe(true);
     expect(plan.buyPctOfUsdt).toBeGreaterThan(0);
-    expect(plan.buyPctOfUsdt).toBeLessThan(config.buyPctOfUsdt);
+    expect(plan.buyPctOfUsdt).toBeCloseTo(100 / 600);
   });
 
-  it("blocks a weak bear-market rebound buy", () => {
+  it("leaves setup-specific bear-market judgment to the model version", () => {
     const plan = createExecutionPlan(
       decision("buy"),
       { ...market, regime: "bear_trend", countertrend_rebound_score: 0.4 },
@@ -115,8 +115,7 @@ describe("deterministic execution risk gates", () => {
       config,
       context,
     );
-    expect(plan.allowed).toBe(false);
-    expect(plan.reason).toContain("rebound score");
+    expect(plan.allowed).toBe(true);
   });
 
   it("permits risk-reduction sells even in high volatility", () => {

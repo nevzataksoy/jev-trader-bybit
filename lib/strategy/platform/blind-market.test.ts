@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { JevTradingState } from "../jev";
-import type { MarketIndicatorState, PositionContext, TradeAsset } from "../types";
-import { buildBlindNumericState, createBlindAliasMap } from "./blind";
-import { buildBlindModel1State } from "./models/model1-blind";
+import type { JevTradingState } from "../../jev";
+import type { MarketIndicatorState, PositionContext, TradeAsset } from "../../types";
+import { buildBlindNumericState, createBlindAliasMap } from "./blind-market";
+import { buildBlindModel1State } from "../models/model1/v1/evaluator";
 
 const observedAt = "2026-09-21T12:30:00.000Z";
 
@@ -27,7 +27,7 @@ function position(asset: TradeAsset, quantity: number, allocation: number): Posi
 function state(): JevTradingState {
   return {
     observedAt,
-    blindEpisodeKey: "experiment-blind-v2",
+    blindEpisodeKey: "experiment-model-isolation",
     executionEnvironment: "demo",
     marketSource: "bybit-mainnet",
     balances: [

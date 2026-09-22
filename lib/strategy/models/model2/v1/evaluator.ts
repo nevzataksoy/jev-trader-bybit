@@ -1,8 +1,8 @@
 import { choice, noul, score, TypeSafeClient, type EntryType } from "@typesafe-ai/sdk";
-import type { JevTradingState } from "../jev";
-import type { TradeAsset } from "../types";
-import { assertBlindPayload, BLIND_SLOTS, buildBlindNumericState, type BlindSlot } from "./blind";
-import type { BlindRotationEvidence } from "./blind-policy";
+import type { JevTradingState } from "../../../../jev";
+import type { TradeAsset } from "../../../../types";
+import { assertBlindPayload, BLIND_SLOTS, buildBlindNumericState, type BlindSlot } from "../../../platform/blind-market";
+import type { BlindRotationEvidence } from "./analysis";
 
 function regimeQuestion(slot: BlindSlot) {
   return choice(

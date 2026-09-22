@@ -1,214 +1,268 @@
-# Jev Pulse — Autonomous Bybit Spot Trading Lab
-
-[Türkçe](#türkçe) · [English](#english) · [Installation](./INSTALL.md) · [Deploy on Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnevzataksoy%2Fjev-trader-bybit)
-
-> Live dashboard: [jev-trader-bybit.vercel.app](https://jev-trader-bybit.vercel.app)
-
----
+# JEV TRADER BYBIT
 
 ## Türkçe
 
-### Proje
+### Proje özeti
 
-Jev Pulse; **USDT, BTC, ETH ve XAUT** arasında çalışan, canlı piyasa verilerini TypeSafe Jev ile değerlendiren ve doğrulanan kararları izole bir Bybit Demo Trading spot hesabında uygulayan açık kaynak bir referans uygulamadır.
+JEV TRADER BYBIT, USDT / BTC / ETH / XAUT arasında sermaye rotasyonu yapan, Bybit piyasa verilerini kullanan ve TypeSafe Jev üzerinden anonim kanıt toplayan bir işlem motorudur.
 
-Uygulama iki veri düzlemini bilinçli olarak ayırır:
+Bu repo temiz başlangıç mimarisine geçirilmiştir. Eski V1/V2/V3/V4 isim zinciri kaldırılmıştır. Mevcut eski V4 davranışı başlangıç noktası kabul edilerek iki model ailesi aşağıdaki kimliklerle yeniden başlatılmıştır:
 
-- **Canlı piyasa zekâsı:** Fiyat, 15 dakikalık mum, order book, 24 saatlik değişim ve mevcut türev sinyalleri Bybit ana ağından alınır.
-- **İzole yürütme:** Bakiye, açık emir, emir geçmişi, gerçekleşmeler ve yeni spot emirler ana hesaptan ayrı UID'ye sahip Demo Trading hesabına aittir; özel istekler `api-demo.bybit.com` üzerinden gider.
+- `model1-v1`
+- `model2-v1`
 
-Bu ayrım, Jev'in güncel piyasa koşullarını değerlendirmesini sağlarken geliştirme aşamasındaki emirleri gerçek bakiyeden uzak tutar.
+Varsayılan A/B karşılaştırması `model1-v1` ve `model2-v1` arasında çalışır.
 
-### Sayısal karar modeli
+### Temel mimari kural
 
-Bot haber, sosyal medya yorumu veya serbest metin piyasa tahmini kullanmaz. Her varlık için 15 dakika ile 30 gün arasındaki getiriler, EMA yapısı ve eğimi, RSI, MACD, ATR, Bollinger konumu/z-skoru, ADX/+DI/−DI, gerçekleşen ve aşağı-yönlü oynaklık, VWAP uzaklığı, trend verimliliği, hacim z-skoru, spread, 50 kademe emir defteri, son işlem akışı, fonlama ve açık pozisyon değişimi hesaplanır. Günlük FRED DGS1/DGS2/DGS10, 10 yıllık reel faiz ve breakeven enflasyon verileri yalnızca yavaş makro rejim bağlamı olarak kullanılır; aynı günlük gözlem her 15 dakikada yeni sinyal sayılmaz.
-
-Teknik göstergeler yalnızca kapanmış mumlardan hesaplanır. Ticker ve emir defteri için Bybit kaynak zamanları, son kapanmış 15 dakikalık mum zamanı ve yerel toplama zamanı ayrı tutulur; bayat veri emirden önce reddedilir. Jev ayrıca pozisyonun elde olup olmadığını, doğrulanabildiğinde ortalama maliyeti/PnL'yi, son işlem zamanını, kullanıcıya özel spot komisyonunu ve 24 saatlik portföy riskini görür.
-
-Uygulama bu ölçümlerden deterministik olarak `bull_trend`, `bear_trend`, `range`, `compression` veya `transition` rejimi üretir. Önceki 24 saat, 3 gün ve 7 günlük fiyat kanallarındaki konum; önceki tepe/dibe ATR uzaklığı, 12 saatlik swing yapısı, haftalık Bollinger genişliği yüzdeliği ve mum gövde/fitil yapısı ayrıca hesaplanır. Mamis evresi ve günlük makro veriler doğrudan hedef ağırlık çarpanı değil, ikincil bağlamdır.
-
-Jev her varlık için rejim, en uygun setup (`trend_pullback`, `upside_breakout`, `range_reversion`, `bear_rebound`, `reduce`, `none`), giriş hazırlığı, yön, devam, false-breakout riski, dönüş teyidi, setup kalitesi ve likiditeyi atomik tipli sorularla değerlendirir. Portföy düzeyinde en iyi sermaye hedefini ve toplam risk bütçesini seçer. Kod yalnızca yapı kapısından geçen ve komisyon, spread ve kayma sonrası pozitif beklenen değere sahip setup'ları boyutlandırır; hedef ile mevcut ağırlık arasındaki fark deadband dışındaysa `buy | sell`, aksi halde `hold` oluşur.
-
-Düşüş rejiminde yeni alım ancak kısa dönem momentum, aşırı satış, hacim ve emir defteri talebini birleştiren rebound skoru güvenlik eşiğini aşarsa yürütülebilir. Satışlar sermayeyi USDT'ye taşıyabilir. Yatay rejimde ise z-skoru ve bant konumu ortalamaya dönüş fırsatlarının değerlendirilmesini sağlar. Tüm alımlar USDT rezervi, tek-varlık yoğunlaşması, spread ve volatilite kapılarından geçer; boyut gerçekleşen oynaklığa göre küçültülür.
-
-### 15 dakikalık karar döngüsü
+Her model sürümü kendi stratejisinin tamamını kendi klasöründe taşır.
 
 ```text
-cron-job.org
-   │
-   ├─ Bybit Demo spot ────> bakiyeler + açık emirler + emir/gerçekleşme geçmişi
-   ├─ Bybit ana ağı ──────> fiyat + mumlar + order book + piyasa göstergeleri
-   │
-   ├─ PostgreSQL ─────────> çevrim kilidi + snapshot + kalıcı işlem günlüğü
-   │
-   └─ TypeSafe Jev ───────> atomik yargılar → kodda hedef ağırlık → buy | sell | hold
-                                  │
-                         güven ve risk kapıları
-                                  │
-                         Bybit Demo spot emri
+lib/strategy/models/
+├── model1/
+│   └── v1/
+│       ├── index.ts
+│       ├── evaluator.ts
+│       ├── policy.ts
+│       ├── confirmation.ts
+│       ├── config.ts
+│       └── confirmation.test.ts
+└── model2/
+    └── v1/
+        ├── index.ts
+        ├── evaluator.ts
+        ├── analysis.ts
+        ├── normalizer.ts
+        ├── policy.ts
+        ├── confirmation.ts
+        ├── config.ts
+        └── confirmation.test.ts
 ```
 
-Jev yalnızca tipli bir karar üretir. Emir miktarı, izin verilen varlıklar, minimum tutar, lot hassasiyeti, açık emir kontrolü, güven eşiği ve tekrar çalıştırma güvenliği uygulama kodunun sorumluluğundadır.
+Model sürümleri birbirini import edemez. Registry generator bu kuralı build öncesinde doğrular.
 
-### Güvenlik ve operasyon özellikleri
+Bu nedenle:
 
-- Varsayılan hesap ortamı `demo`; gerçek ana ağ işlemleri ayrıca kilitlidir.
-- `TRADING_ENABLED=false` iken Jev kararları kaydedilir ancak emir gönderilmez.
-- Aynı 15 dakikalık çevrim PostgreSQL benzersiz anahtarı sayesinde ikinci kez emir üretemez.
-- Eksik kritik veri veya API hatasında sistem emir göndermeden kapanır.
-- Her emir için benzersiz `orderLinkId` oluşturulur.
-- Hedef varlıklar kod seviyesinde USDT, BTC, ETH ve XAUT ile sınırlandırılmıştır.
-- Bybit’in sembol bazlı minimum miktar ve adım kuralları emirden önce okunur.
-- Market emirleri yapılandırılabilir Bybit yüzde kayma toleransı kullanır; emir kabulü gerçekleşme sayılmaz ve geçmiş/fill verisiyle uzlaştırılır.
-- Yeni alımlar komisyon, spread ve tahmini kaymaya karşı ATR/maliyet oranı, 24 saatlik drawdown ve işlem sayısı sınırlarından geçer; zamana bağlı varlık cooldown'ı uygulanmaz.
-- İlk girişler normal kurulumda portföyün yaklaşık %15'i, güçlü kurulumda %20'siyle sınırlandırılır. Risk azaltan satışlar önce yürütülür; bağımsız Jev alımları fırsat gücüne göre sıralanır ve bir çevrimde en fazla iki yeni alım yapılır.
-- Cron endpoint’i yalnızca Vercel ortamındaki `CRON_SECRET` ile eşleşen Bearer başlığıyla çalışır.
-- API anahtarları hiçbir zaman istemci paketine veya dashboard cevabına eklenmez.
-- Her sahip olunan 15 dakikalık turun sonunda bakım çalışır: günlük sermaye kayıtları UTC ve Europe/Istanbul bazında uzun vadeli arşivlenir; ayrıntılı tur JSON'ları, tamamlanmış eski emirler ve makro snapshot'lar yapılandırılabilir saklama sürelerine göre temizlenir. Açık emirler cleanup tarafından silinmez.
+```text
+models/model1/v1 silinirse  -> yalnız Model1 V1 kalkar
+models/model1 silinirse     -> bütün Model1 ailesi kalkar
+models/model2 etkilenmez
+```
 
-### Dashboard
+Yeni bir Model3 eklemek için örnek:
 
-TR/EN dashboard aşağıdakileri gösterir:
+```text
+lib/strategy/models/model3/v1/index.ts
+```
 
-- Günlük USDT sermaye eğrisi,
-- Dört hedef varlığın miktarı, USDT değeri, canlı fiyatı ve portföy payı,
-- Bybit ve PostgreSQL bağlantı durumu,
-- Son Jev kararları, olasılıklar, güven skoru ve emir kapısı sonucu,
-- Sembol, yön ve durum filtreli kalıcı emir geçmişi,
-- Emir zamanı ile son gerçekleşme zamanı ayrı alanlarda,
-- Botun veri ve karar hattının iki dilde açıklaması,
-- Gerçek hesap kullanımı için görünür risk bildirimi.
+oluşturulur. Registry build öncesinde bunu otomatik olarak `model3-v1` kimliğiyle keşfeder.
 
-### Teknoloji
+### Ortak platform ile model stratejisi arasındaki sınır
 
-- Next.js 16 / React 19 / TypeScript
-- Official `@typesafe-ai/sdk` (`systemOne`, typed Choice/Score/Noul questions)
-- `bybit-api` V5 SDK
-- Local PostgreSQL and Neon-compatible storage via `postgres`
-- Vercel Hobby + cron-job.org zamanlayıcısı
-- Vitest, ESLint and TypeScript quality gates
+Ortak katman yalnızca modelden bağımsız altyapıyı sağlar:
 
-### Zamanlayıcı
+- Bybit piyasa verisi ve indikatörler
+- anonim varlık eşleme / blind payload güvenliği
+- ortak snapshot
+- paper portfolio ve execution persistence
+- exchange hard safety limitleri
+- A/B orchestration
+- registry/discovery
+- PostgreSQL erişimi
 
-Proje Vercel Hobby ile deploy edilebilmesi için yerleşik Vercel Cron tanımı içermez. cron-job.org her saatin `00, 15, 30, 45` dakikalarında `GET https://<uygulama-adresi>/api/cron` çağrısı yapar ve Vercel'deki `CRON_SECRET` ile aynı değeri `Authorization: Bearer <secret>` başlığında gönderir. Vercel fonksiyonları, Bybit'in engellediği varsayılan ABD çıkışı yerine `fra1` Frankfurt bölgesinde çalışır.
+Model sürüm klasörü ise kendi stratejik kararlarının sahibidir:
 
-### Yerel tarihsel simülasyon
+- Jev soruları
+- Jev cevabının analizi
+- setup / readiness değerlendirmesi
+- opportunity ve portfolio scoring
+- allocation politikası
+- model-özel parametreler
+- wait_close / wait_retest mantığı
+- deterministic confirmation
+- evidence-weighted confirmation confidence
+- nihai buy / hold / sell kararı
 
-Üretim tablolarından ayrılmış `simulation` PostgreSQL şeması, son 48 saatin 192 adet 15 dakikalık karar çevrimini aynı Jev, hedef tahsis ve risk fonksiyonlarından geçirir. Göstergeler yalnız karar anında kapanmış mumlardan hesaplanır; sanal emir bir sonraki 15 dakikalık mumun açılışında ters yönlü kayma ve taker ücretiyle gerçekleşir. Geçmiş order-book REST verisi bulunmadığı için nötr proxy açıkça etiketlenir, geçmiş trade-flow ise uydurulmadan `unavailable` gönderilir.
+Runner artık modelden sonra ortak bir stratejik confirmation katmanı çalıştırmaz. Model sürümü kararını nihai hale getirerek runner'a verir.
 
-`npm run simulation:setup` yerel şemayı hazırlar. `npm run backtest:smoke` tek Jev çağrılı uçtan uca testtir. Tam çalışma 192 model çağrısı yapacağı için önce `BACKTEST_CONFIRM_JEV_USAGE=true` ayarlanmalı, ardından `npm run backtest:2d` çalıştırılmalıdır. `npm run backtest:report` son raporu, `npm run backtest:inspect` ise eşik dağılımlarını ve maliyet sonrası ileri getiri tanısını gösterir. Simülasyon bağlantısı varsayılan olarak yalnız localhost kabul eder ve Vercel/Neon üretim veritabanına yazmaz.
+### Kör Jev ilkesi
 
-### Sorumluluk reddi
+Jev'e gerçek varlık kimliği gönderilmez.
 
-Bu yazılım Jev entegrasyonunu gösteren deneysel bir referans uygulamadır ve yatırım tavsiyesi değildir. Kripto varlık işlemleri önemli kayıp riski taşır. Demo Trading sonuçları gerçek piyasa performansını, likiditeyi veya kaymayı temsil etmeyebilir. Gerçek hesap kullanımı öncesinde bağımsız güvenlik, strateji, mevzuat ve risk değerlendirmesi yapılmalıdır. Proje sahipleri ve katkıda bulunanlar işlem kayıplarından sorumlu değildir.
+Uygulama BTC / ETH / XAUT değerlerini deterministik anonim slotlara dönüştürür:
+
+```text
+candidate_1
+candidate_2
+candidate_3
+```
+
+Payload içinde gerçek sembol, mutlak varlık kimliği ve yasaklı alanlar bulunursa blind payload kontrolü hata verir. Kimlik eşleme uygulama tarafında kalır.
+
+### Cron ve A/B akışı
+
+```text
+cron
+  ↓
+piyasa verisini bir kez çek
+  ↓
+shared snapshot
+  ├── model1-v1 → kendi Jev sorgusu → kendi analiz/policy/confirmation → final karar
+  └── model2-v1 → kendi Jev sorgusu → kendi analiz/policy/confirmation → final karar
+  ↓
+platform safety
+  ↓
+paper execution / persistence
+```
+
+A/B modunda gerçek Bybit emir iletimi kod seviyesinde kapalıdır.
+
+Varsayılan:
+
+```env
+STRATEGY_RUN_MODE=ab_test
+EXCHANGE_EXECUTION_ENGINE=none
+AB_ENGINE_IDS=model1-v1,model2-v1
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+```
+
+### Veritabanı
+
+Temiz proje tek şema kaynağı olarak `database/schema.sql` kullanır. Geçmiş migration kayıtları ve upgrade SQL'leri kaldırılmıştır.
+
+Uygulama runtime sırasında `CREATE TABLE IF NOT EXISTS` ile gerekli tabloları doğrular. Bu nedenle Vercel build aşamasının kendisi DB migration çalıştırmaz; fakat ilk DB kullanan runtime çağrısı, örneğin `/api/cron`, şemayı otomatik oluşturabilir.
+
+İsterseniz deploy öncesinde açıkça:
+
+```bash
+npm run db:setup
+```
+
+çalıştırabilirsiniz.
+
+Tarihsel local backtest / simulation akışı temiz projeden kaldırılmıştır.
+
+### Kalite komutları
+
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+Kurulum ve Vercel adımları için `INSTALL.md` dosyasına bakın.
 
 ---
 
 ## English
 
-### Project
+### Project summary
 
-Jev Pulse is an open-source reference application that rotates capital across **USDT, BTC, ETH and XAUT**, evaluates live market state with TypeSafe Jev, and applies validated decisions inside an isolated Bybit Demo Trading spot account.
+JEV TRADER BYBIT rotates capital across USDT / BTC / ETH / XAUT using Bybit market data and anonymous TypeSafe Jev evidence.
 
-The application deliberately separates two data planes:
+The repository now uses a clean-baseline model architecture. Historical V1/V2/V3/V4 naming was removed. The former V4 behavior is treated as the initial baseline and is now exposed as:
 
-- **Live market intelligence:** prices, 15-minute candles, order book, 24-hour movement and available derivative signals come from Bybit mainnet.
-- **Isolated execution:** balances, open orders, history, executions and new spot orders belong to a Demo Trading account with its own UID; private calls use `api-demo.bybit.com`.
+- `model1-v1`
+- `model2-v1`
 
-This lets Jev evaluate current market conditions while keeping development orders away from real funds.
+The default A/B experiment compares those two engines.
 
-### Quantitative decision model
+### Core architecture rule
 
-The bot does not consume news, social commentary or free-form market forecasts. It computes 15-minute through 30-day returns, EMA structure and slope, RSI, MACD, ATR, Bollinger position/z-score, ADX/+DI/−DI, realized/downside volatility, VWAP distance, trend efficiency, volume z-score, spread, 50-level depth, recent trade flow, funding and open-interest changes. Daily FRED DGS1/DGS2/DGS10, ten-year real-yield and breakeven-inflation observations are slow macro context only; one daily observation is never treated as a new signal every fifteen minutes.
+Every model version owns its complete strategy inside its own version directory.
 
-Technical indicators use closed candles only. Bybit source times for ticker/order-book data, the latest closed 15-minute candle and local collection time are tracked separately; stale inputs fail closed. Jev also receives position ownership, verified cost basis/PnL when reconstructable, last-trade timing, account-specific spot fees and trailing 24-hour portfolio risk.
+```text
+lib/strategy/models/
+├── model1/
+│   └── v1/
+│       ├── index.ts
+│       ├── evaluator.ts
+│       ├── policy.ts
+│       ├── confirmation.ts
+│       ├── config.ts
+│       └── confirmation.test.ts
+└── model2/
+    └── v1/
+        ├── index.ts
+        ├── evaluator.ts
+        ├── analysis.ts
+        ├── normalizer.ts
+        ├── policy.ts
+        ├── confirmation.ts
+        ├── config.ts
+        └── confirmation.test.ts
+```
 
-Application code derives `bull_trend`, `bear_trend`, `range`, `compression` or `transition` evidence. It also measures location inside prior 24-hour, 3-day and 7-day channels, ATR distance to structural levels, twelve-hour swing structure, weekly Bollinger-width percentile and closed-candle body/wick shape. Mamis and daily macro state remain secondary context rather than direct allocation multipliers.
+A model version may not import another model family or version. The registry generator enforces this at build time.
 
-For each asset, Jev evaluates regime, the best setup (`trend_pullback`, `upside_breakout`, `range_reversion`, `bear_rebound`, `reduce`, `none`), entry readiness, direction, follow-through, false-breakout risk, reversal confirmation, setup quality and liquidity. At portfolio level it selects the preferred capital destination and gross risk budget. Deterministic code sizes only structure-qualified setups with positive expected value after fees, spread and slippage.
+Deleting `models/model1/v1` removes only Model1 V1. Deleting `models/model1` removes the full Model1 family without breaking Model2.
 
-Bear-regime buys require a separate rebound score combining short-horizon momentum, oversold statistics, volume and order-book demand. Sells may rotate capital into USDT. Range decisions can use statistical mean-reversion evidence. Every buy is additionally constrained by a USDT reserve, single-asset allocation cap, spread ceiling and volatility-scaled sizing.
+To add Model3, create for example:
 
-### 15-minute decision cycle
+```text
+lib/strategy/models/model3/v1/index.ts
+```
 
-Jev returns one typed `buy`, `sell` or `hold` decision for BTC, ETH and XAUT. Application code owns position sizing, the asset allowlist, exchange precision, minimum notional, confidence threshold, open-order checks and idempotency.
+The generated registry will discover it as `model3-v1`.
 
-Every successful cycle stores:
+### Platform versus strategy
 
-- A portfolio and price snapshot,
-- The live market state supplied to Jev,
-- Jev decisions and probabilities,
-- Execution-gate outcomes,
-- Synced Bybit orders and fill timestamps.
+Shared platform code owns only model-agnostic infrastructure:
 
-### Safety and operations
+- Bybit data and indicators
+- blind asset masking
+- shared snapshots
+- paper portfolio and persistence
+- hard execution safety ceilings
+- A/B orchestration
+- model discovery
+- PostgreSQL access
 
-- `demo` is the default account environment; real-mainnet execution has an additional lock.
-- `TRADING_ENABLED=false` records decisions without submitting orders.
-- A PostgreSQL cycle key prevents duplicate execution within the same 15-minute window.
-- Missing critical data and provider errors fail closed.
-- Exchange instrument filters are loaded before sizing an order.
-- Market orders carry a configurable Bybit percentage slippage limit; acknowledgement is reconciled against order/fill history before being marked confirmed.
-- Buys must pass fee/spread/slippage range, rolling drawdown and 24-hour order-count gates; there is no time-based per-asset cooldown.
-- Initial entries are capped near 15% of portfolio value, or 20% for strong setups. Risk-reduction sells run first; independent Jev buys are ranked and at most two new buys may execute per cycle.
-- The cron endpoint requires a Bearer header matching the `CRON_SECRET` stored in Vercel.
-- Secrets remain server-side and are never returned to the dashboard.
-- End-of-cycle maintenance archives daily equity in both UTC and Europe/Istanbul before expiring detailed run JSON, old completed orders and macro snapshots according to configurable retention periods. Open orders are never deleted by cleanup.
+Each version directory owns its strategy:
 
-### Dashboard
+- Jev questions
+- evidence interpretation
+- setup/readiness logic
+- opportunity and portfolio scoring
+- allocation policy
+- model-specific parameters
+- wait_close / wait_retest state
+- deterministic confirmation
+- evidence-weighted confirmation confidence
+- final buy / hold / sell decisions
 
-The always-available TR/EN dashboard presents the daily USDT capital curve, asset allocation, live prices, infrastructure status, Jev decisions, confidence and probabilities, execution outcomes, filtered order history, separate order/fill timestamps, an understandable pipeline explanation, and a visible real-account risk disclosure.
+The runner does not apply a shared strategic confirmation layer after the model finishes.
 
-### Scheduler
+### Blind Jev invariant
 
-The repository does not include a native Vercel Cron definition, so it can deploy on Vercel Hobby. cron-job.org calls `GET https://<deployment-url>/api/cron` at minutes `00, 15, 30, 45` of every hour and sends the same secret stored in Vercel as `Authorization: Bearer <secret>`. Vercel Functions run in the `fra1` Frankfurt region instead of the default US region blocked by Bybit.
+Jev never receives BTC / ETH / XAUT identity. Assets are mapped to anonymous candidates and only normalized evidence is sent. The application keeps the private reverse mapping.
 
-### Local historical simulation
+### A/B flow
 
-A separate PostgreSQL `simulation` schema replays the last 48 hours as 192 fifteen-minute decisions through the same Jev, target-allocation and risk functions used by production. Indicators use only candles already closed at the decision boundary; virtual fills use the next candle open with adverse slippage and taker fees. Historical REST order-book data is unavailable, so a neutral proxy is explicitly labeled, while missing historical trade flow remains `unavailable` instead of being invented.
+```text
+cron
+  ↓
+fetch market data once
+  ↓
+shared snapshot
+  ├── model1-v1 → Jev → local analysis/policy/confirmation → final decision
+  └── model2-v1 → Jev → local analysis/policy/confirmation → final decision
+  ↓
+platform safety
+  ↓
+paper execution / persistence
+```
 
-Run `npm run simulation:setup`, then use `npm run backtest:smoke` for a one-call end-to-end check. A full run makes 192 model calls and therefore requires `BACKTEST_CONFIRM_JEV_USAGE=true` before `npm run backtest:2d`. Use `npm run backtest:report` for the latest portfolio report and `npm run backtest:inspect` for threshold distributions and cost-adjusted forward-signal diagnostics. The simulation connection accepts localhost by default and does not write to the Vercel/Neon production database.
+Real exchange routing is hard-disabled while `STRATEGY_RUN_MODE=ab_test`.
 
-### Disclaimer
+### Database
 
-This is experimental reference software demonstrating a Jev integration, not investment advice. Crypto trading carries a substantial risk of loss. Demo Trading results may not represent real-market performance, liquidity or slippage. Complete independent security, strategy, legal and risk reviews before any real-account use. Project owners and contributors are not liable for trading losses.
+`database/schema.sql` is the clean baseline schema. Historical migration bookkeeping and upgrade SQL have been removed.
 
-See [INSTALL.md](./INSTALL.md) for local and Vercel setup.
+Runtime DB initialization uses `CREATE TABLE IF NOT EXISTS`. Vercel build itself does not run a migration, but the first runtime path that needs the database can bootstrap the schema automatically. `npm run db:setup` remains available for explicit provisioning.
 
-After enough consecutive snapshots have accumulated, run `npm run strategy:report` to inspect 15-minute, one-hour and four-hour cost-aware outcomes, calibration, context groups, turnover and observed drawdown. Fewer than 500 one-hour asset outcomes are explicitly reported as an insufficient sample; the report is diagnostic and is not proof of profitability.
+The old local historical backtest/simulation subsystem has been removed.
 
----
-
-## Model1 / Model2 A/B laboratuvarı
-
-`STRATEGY_RUN_MODE=model1` mevcut karar motorunu, `model2` rejim ve göreli güç odaklı rotasyon motorunu çalıştırır. `ab_test` modunda piyasa verileri bir kez toplanıp değişmez bir ortak snapshot olarak kaydedilir; Model1 ve Model2 aynı snapshot üzerinde Jev'den paralel karar ister. Her motorun 1000 USDT ile başlayan bağımsız paper portföyü, maliyet temeli, emirleri, ücretleri ve sermaye eğrisi vardır.
-
-A/B modunda gerçek borsa iletimi kod seviyesinde zorunlu olarak kapalıdır. `TRADING_ENABLED=true` veya `EXCHANGE_EXECUTION_ENGINE=model1|model2` girilmiş olsa bile paper emir `routing_status=suppressed_ab_test` ile kaydedilir ve yalnızca ilgili motorun sanal bakiyesini etkiler. Sonuçlar TR/EN destekli [`/models`](https://jev-trader-bybit.vercel.app/models) sayfasında karşılaştırılır.
-
-Önerilen ilk ileriye dönük gözlem süresi en az 42 gün ve motor başına en az 30 sanal gerçekleşmedir. Aktif deney kayıtları cleanup tarafından silinmez; tamamlanmış/iptal edilmiş deneyler `EXPERIMENT_DETAIL_RETENTION_DAYS` süresinden sonra temizlenebilir.
-
-## Model1 / Model2 A/B lab
-
-`STRATEGY_RUN_MODE=model1` runs the existing decision engine, while `model2` runs the regime and relative-strength rotation engine. In `ab_test` mode, market data is collected once and persisted as an immutable shared snapshot; both engines request independent Jev decisions against that same snapshot. Each engine owns an isolated paper portfolio, cost basis, order ledger, fees and equity curve seeded with 1,000 USDT.
-
-Exchange routing is unconditionally disabled in A/B mode. Even if `TRADING_ENABLED=true` or an exchange engine is selected, a paper order is stored with `routing_status=suppressed_ab_test` and affects only that engine's virtual balance. Compare the bilingual results at [`/models`](https://jev-trader-bybit.vercel.app/models).
-
-The initial forward observation requires at least 42 days and 30 simulated fills per engine. Cleanup never removes active experiments; completed or cancelled experiments become eligible after `EXPERIMENT_DETAIL_RETENTION_DAYS`.
-
-## Kör Jev motorları / Blind Jev engines
-
-Motorlar `lib/strategy/models/*.ts` dosyalarından build öncesinde otomatik keşfedilir. Bir motor eklemek için aynı sözleşmeyi uygulayan tek bir model dosyası ekleyin; kaldırmak için ilgili dosyayı silin. Model dosyalarının birbirini doğrudan içe aktarması registry üreticisi tarafından reddedilir; paylaşılan çekirdekler `lib/strategy/models` dışında tutulur. `predev`, `prebuild`, `prelint`, `pretypecheck` ve `pretest` adımları generated catalog/registry dosyalarını otomatik yeniler.
-
-Eski `model1` ve `model2` motorları karşılaştırma amacıyla korunur. `model1-blind` ve `model2-blind`; gerçek varlık kodu, sembol, fiyat, mutlak teknik seviye, ham miktar ve gerçek takvim bilgisini Jev'e göndermez. Getiriler, oynaklık, kanal konumu, göreli güç, işlem maliyeti ve diğer sayısal sinyaller gerçek serilerden hesaplanmaya devam eder. Jev yalnızca anonim piyasa uygunluğu üretir; varlık eşleme, portföy hedefi, risk ve emir kararı uygulama kodunda kalır.
-
-`model1-blind-v3` ve `model2-blind-v3`, V2 motorlarını değiştirmeden aynı anonim Jev kanıtlarını yeni stateful politika ile işler. `wait_close` ve `wait_retest` kararları `engine_pending_signals` tablosunda sırasıyla 30 ve 120 dakika yaşar; yalnızca daha sonraki kapanmış mum setup'a özel deterministik doğrulamayı geçerse paper alıma dönüşür. V3 motorları `zero=0%`, `low=25%`, `medium=50%`, `high=80%` ortak risk dönüşümünü kullanır ve her bekleme kararında `blockedBy` nedenlerini kaydeder.
-
-`model1-blind-v4` ve `model2-blind-v4`, herhangi bir V3 model/modül dosyasına bağlı değildir. V3 ve V4 motorları sürüm-nötr `stateful-policy.ts` çekirdeğini kendi sürüm kimlikleriyle kullanır; bu yüzden V3 model dosyalarının silinmesi V4 import zincirini bozmaz ve karar/audit metinleri çalışan sürümü doğru biçimde `V3` veya `V4` olarak gösterir. V4 ayrıca kanıt ağırlıklı doğrulama güveni ekler. Daha sonraki kapanmış mum doğrulaması; doğrulama öncesindeki Jev etiket güvenini aynen kullanmak yerine yön olasılığı, kurulum kalitesi, likidite, örüntü desteği, düzensizlik ve sahte kırılım riskini birleştirir. Böylece genel yürütme eşiği gevşetilmeden geçerli deterministik teyidin yalnızca önceki durum `wait_close` veya `wait_retest` olduğu için kaybolması önlenir. V3 tarihsel karşılaştırma için korunur; sonuçları karıştırmamak için V4 yeni bir `AB_EXPERIMENT_ID` ile başlatılmalıdır.
-
-The strategy registry is generated from `lib/strategy/models/*.ts`. Add one contract-compatible file to add an engine, or delete that file to remove it. The registry generator rejects direct sibling imports between model files; shared kernels must live outside `lib/strategy/models`, preserving the rule that removing one engine requires deleting only its own file. Legacy `model1` and `model2` remain available; `model1-blind` and `model2-blind` apply data-side asset and calendar masking while preserving normalized market evidence. Jev supplies typed evidence only, while deterministic application policy owns identity mapping, allocation, risk and execution.
-
-`model1-blind-v3` and `model2-blind-v3` preserve the V2 engines while applying a stateful policy to the same anonymous Jev evidence. `wait_close` and `wait_retest` signals persist for 30 and 120 minutes and become paper buys only after a later closed candle passes setup-specific deterministic confirmation. Both V3 engines share the `zero=0%`, `low=25%`, `medium=50%`, `high=80%` risk mapping and persist explicit `blockedBy` reasons.
-
-`model1-blind-v4` and `model2-blind-v4` do not depend on any V3 model/module file. V3 and V4 use the version-neutral `stateful-policy.ts` kernel with their own explicit revision identity, so deleting the V3 model files cannot break the V4 import graph and decision/audit rationale reports the actual running revision. V4 additionally uses evidence-weighted confirmation confidence. A later closed-candle confirmation combines directional probability, setup quality, liquidity, pattern support and disorder/false-breakout risk instead of reusing the pre-confirmation Jev label confidence. This keeps the global execution threshold intact while preventing a valid deterministic confirmation from being discarded merely because its earlier state was `wait_close` or `wait_retest`. V3 remains available for historical comparison; start V4 with a new `AB_EXPERIMENT_ID` so results are never mixed.
-
-Geçmiş simülasyonda motor seçimi `BACKTEST_STRATEGY_ENGINE=model1-blind` ile yapılır; böylece production, paper A/B ve backtest aynı dosya tabanlı motor sözleşmesini kullanır.
+See `INSTALL.md` for deployment instructions.

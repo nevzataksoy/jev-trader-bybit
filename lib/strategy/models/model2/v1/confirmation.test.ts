@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { JevDecision, MarketIndicatorState } from "../types";
+import type { JevDecision, MarketIndicatorState } from "../../../../types";
 import {
   buildConfirmedDecision,
   evaluatePendingConfirmation,
   type PendingSignal,
-} from "./pending";
+} from "./confirmation";
 
 const sourceCandleAt = "2026-09-21T12:00:00.000Z";
 const baseSignal = {
   id: 1,
   scopeId: "test",
   experimentId: null,
-  engineId: "model1-blind-v3",
+  engineId: "model2-v1",
   asset: "BTC",
   setup: "upside_breakout",
   readiness: "wait_close",
@@ -92,10 +92,10 @@ describe("pending signal confirmation", () => {
     expect(evaluatePendingConfirmation(retest, market("2026-09-21T12:15:00.000Z", 100.2))).toEqual({ touched: true, confirmed: true });
   });
 
-  it("recalibrates a deterministically confirmed V4 signal from evidence probabilities", () => {
+  it("recalibrates a deterministically confirmed Model2 V1 signal from evidence probabilities", () => {
     const decision = pendingDecision();
     const signal = { ...baseSignal, setup: "trend_pullback" as const, readiness: "wait_retest" as const, sourceDecision: decision };
-    const confirmed = buildConfirmedDecision(decision, decision, signal, "evidence_weighted");
+    const confirmed = buildConfirmedDecision(decision, decision, signal);
 
     expect(confirmed.action).toBe("buy");
     expect(confirmed.signalState).toBe("confirmed");
@@ -105,12 +105,4 @@ describe("pending signal confirmation", () => {
     expect(confirmed.blockedBy).toEqual([]);
   });
 
-  it("keeps V3 legacy confirmation confidence unchanged", () => {
-    const decision = pendingDecision();
-    const signal = { ...baseSignal, setup: "trend_pullback" as const, readiness: "wait_retest" as const, sourceDecision: decision };
-    const confirmed = buildConfirmedDecision(decision, decision, signal, "legacy");
-
-    expect(confirmed.confidence).toBe(0.5375);
-    expect(confirmed.probabilities).toEqual(decision.probabilities);
-  });
 });

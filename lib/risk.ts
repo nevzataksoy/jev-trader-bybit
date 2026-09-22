@@ -58,7 +58,7 @@ export function createExecutionPlan(
     }
     const currentAllocation = Math.max(decision.currentAllocationPct, context.position.allocation_pct, 0.0001);
     const targetReductionFraction = Math.max(0, -decision.rebalanceDeltaPct) / currentAllocation;
-    const sellPctOfHolding = Math.min(config.sellPctOfHolding, targetReductionFraction);
+    const sellPctOfHolding = Math.min(1, targetReductionFraction);
     if (sellPctOfHolding * assetBalance.usdtValue < config.minTradeUsdt) {
       return deny("Target allocation delta is below the minimum executable sale amount.");
     }
@@ -79,9 +79,6 @@ export function createExecutionPlan(
   if (market.realized_volatility_24h_pct > config.maxDailyVolatilityPct) {
     return deny(`Daily realized volatility ${market.realized_volatility_24h_pct.toFixed(2)}% is above the risk ceiling.`);
   }
-  if (market.regime === "bear_trend" && market.countertrend_rebound_score < config.minBearReboundScore) {
-    return deny(`Bear-market rebound score ${market.countertrend_rebound_score.toFixed(2)} is too weak for a countertrend buy.`);
-  }
   const roundTripCostPct = context.fee.taker_fee_pct * 2
     + market.bid_ask_spread_pct
     + config.estimatedSlippagePct * 2;
@@ -96,26 +93,14 @@ export function createExecutionPlan(
   const reserve = totalPortfolioUsdt * config.minUsdtReservePct;
   const spendableAfterReserve = Math.max(0, freeUsdt - reserve);
   const allocationCapacity = Math.max(0, totalPortfolioUsdt * config.maxAssetAllocationPct - (assetBalance?.usdtValue ?? 0));
-  const volatilityScale = Math.min(1, config.targetDailyVolatilityPct / Math.max(market.realized_volatility_24h_pct, 0.1));
   const targetDeltaSpend = Math.max(0, decision.rebalanceDeltaPct) / 100 * totalPortfolioUsdt;
-  const isInitialEntry = context.position.status === "flat" || context.position.value_usdt < config.minTradeUsdt;
-  const strongInitialEntry = decision.judgments.setup_quality.score >= 3
-    && decision.confidence >= 0.75
-    && decision.judgments.liquidity_ok >= 0.75;
-  const initialTranchePct = strongInitialEntry
-    ? config.strongInitialEntryPctOfPortfolio
-    : config.initialEntryPctOfPortfolio;
-  const requestedSpend = isInitialEntry
-    ? totalPortfolioUsdt * initialTranchePct
-    : freeUsdt * config.buyPctOfUsdt;
-  const desiredSpend = Math.min(requestedSpend, targetDeltaSpend) * volatilityScale;
-  const approvedSpend = Math.min(desiredSpend, spendableAfterReserve, allocationCapacity);
+  const approvedSpend = Math.min(targetDeltaSpend, spendableAfterReserve, allocationCapacity);
   if (approvedSpend < config.minTradeUsdt) {
     return deny("USDT reserve or per-asset allocation limit leaves no valid buy budget.");
   }
   return {
     allowed: true,
-    reason: `Buy passed target-allocation, reserve, source-age, cost, regime and volatility gates; ${isInitialEntry ? `${(initialTranchePct * 100).toFixed(0)}% initial tranche and ` : ""}size scaled to ${(volatilityScale * 100).toFixed(0)}%.`,
+    reason: "Buy passed platform safety gates; execution follows the model version's target allocation delta.",
     buyPctOfUsdt: approvedSpend / freeUsdt,
     sellPctOfHolding: 0,
   };

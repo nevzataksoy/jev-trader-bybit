@@ -3,6 +3,13 @@ import type { JevResponse } from "../types";
 
 export type StrategyEngineId = string;
 
+export interface StrategyRuntimeContext {
+  scopeId: string;
+  experimentId: string | null;
+  cycleKey: string;
+  capturedAt: string;
+}
+
 export interface StrategyEngineResult extends JevResponse {
   engineId: StrategyEngineId;
   engineVersion: string;
@@ -11,9 +18,8 @@ export interface StrategyEngineResult extends JevResponse {
 
 export interface StrategyEngine {
   id: StrategyEngineId;
+  family: string;
   version: string;
-  statefulConfirmation?: boolean;
-  confirmationConfidence?: "legacy" | "evidence_weighted";
   buildAuditState?(state: JevTradingState): unknown;
-  evaluate(state: JevTradingState): Promise<StrategyEngineResult>;
+  evaluate(state: JevTradingState, runtime: StrategyRuntimeContext): Promise<StrategyEngineResult>;
 }

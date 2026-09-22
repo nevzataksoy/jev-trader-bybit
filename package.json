@@ -16,11 +16,6 @@
     "pretest": "npm run strategy:registry",
     "test": "vitest run",
     "db:setup": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/setup-db.mjs",
-    "simulation:setup": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --import tsx scripts/setup-simulation.ts",
-    "backtest:2d": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --import tsx scripts/backtest.ts --hours=48",
-    "backtest:smoke": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --import tsx scripts/backtest.ts --hours=48 --max-cycles=1",
-    "backtest:report": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --import tsx scripts/backtest-report.ts",
-    "backtest:inspect": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --import tsx scripts/backtest-inspect.ts",
     "strategy:report": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/strategy-report.mjs",
     "quality": "npm run lint && npm run typecheck && npm run test && npm run build"
   },

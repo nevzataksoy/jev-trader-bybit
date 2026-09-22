@@ -36,7 +36,6 @@ import { createExecutionPlan } from "@/lib/risk";
 import { getExchangeRoutingState, getStrategyRuntimeConfig } from "@/lib/strategy/config";
 import { ensureStrategyExperiment, saveSharedMarketSnapshot } from "@/lib/strategy/experiment";
 import { createEngineState, getStrategyEngine, runPaperEngineCycle } from "@/lib/strategy/runner";
-import { applyStatefulConfirmation } from "@/lib/strategy/pending";
 import type { StrategyEngineId } from "@/lib/strategy/types";
 import type { BotExecutionResult } from "@/lib/types";
 
@@ -216,18 +215,12 @@ export async function GET(request: Request) {
       portfolioRisk,
       macro,
     });
-    const evaluated = await engine.evaluate(state);
-    const result = {
-      ...evaluated,
-      decisions: await applyStatefulConfirmation({
-        scopeId: `exchange:${engineId}`,
-        engine,
-        cycleKey,
-        capturedAt,
-        decisions: evaluated.decisions,
-        indicators,
-      }),
-    };
+    const result = await engine.evaluate(state, {
+      scopeId: `exchange:${engineId}`,
+      experimentId: null,
+      cycleKey,
+      capturedAt,
+    });
     const routing = getExchangeRoutingState(engineId, strategy, trading.enabled);
     const openSymbols = new Set(activity.openOrders.map((order) => order.symbol));
     let executions: BotExecutionResult[] = [];

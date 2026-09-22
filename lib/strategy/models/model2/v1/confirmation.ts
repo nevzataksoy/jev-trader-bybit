@@ -1,14 +1,13 @@
-import { getTradingConfig } from "../config";
-import { getSql } from "../db";
-import { asPostgresJson } from "../postgres-json";
+import { getModelConfig } from "./config";
+import { getSql } from "../../../../db";
+import { asPostgresJson } from "../../../../postgres-json";
 import type {
   DecisionBlocker,
   JevDecision,
   MarketIndicatorState,
   TradeAsset,
   TradingSetup,
-} from "../types";
-import type { StrategyEngine } from "./types";
+} from "../../../../types";
 
 export type PendingSignalStatus = "active" | "confirmed" | "invalidated" | "expired" | "replaced";
 
@@ -135,7 +134,7 @@ export function evaluatePendingConfirmation(signal: PendingSignal, market: Marke
   if (signal.readiness === "wait_retest") return retestConfirmation(signal, market);
   return {
     touched: false,
-    confirmed: closeConfirmation(signal, market, getTradingConfig().minBearReboundScore),
+    confirmed: closeConfirmation(signal, market, getModelConfig().minBearReboundScore),
   };
 }
 
@@ -209,7 +208,7 @@ async function createPendingSignal(input: {
   readiness: PendingSignal["readiness"];
 }) {
   const sql = getSql();
-  const config = getTradingConfig();
+  const config = getModelConfig();
   const ttlMinutes = input.readiness === "wait_close" ? config.waitCloseTtlMinutes : config.waitRetestTtlMinutes;
   await sql`
     INSERT INTO engine_pending_signals (
@@ -231,11 +230,10 @@ export function buildConfirmedDecision(
   current: JevDecision,
   source: JevDecision,
   signal: PendingSignal,
-  confidenceMode: StrategyEngine["confirmationConfidence"] = "legacy",
 ) {
   const target = Math.max(current.targetAllocationPct, source.targetAllocationPct);
   const delta = target - current.currentAllocationPct;
-  if (delta < getTradingConfig().allocationDeadbandPct) {
+  if (delta < getModelConfig().allocationDeadbandPct) {
     return {
       ...current,
       targetAllocationPct: target,
@@ -246,35 +244,30 @@ export function buildConfirmedDecision(
       policyReason: `Stateful confirmation: ${signal.readiness} ${signal.setup} signal passed a later closed candle, but the remaining ${delta.toFixed(2)}% allocation delta is inside the deadband.`,
     };
   }
-  const confidence = confidenceMode === "evidence_weighted"
-    ? confirmedSignalConfidence(current, source)
-    : Math.max(current.confidence, source.confidence);
+  const confidence = confirmedSignalConfidence(current, source);
   return {
     ...current,
     action: "buy" as const,
     confidence,
-    probabilities: confidenceMode === "evidence_weighted"
-      ? { buy: confidence, hold: 1 - confidence, sell: 0 }
-      : current.probabilities,
+    probabilities: { buy: confidence, hold: 1 - confidence, sell: 0 },
     targetAllocationPct: target,
     rebalanceDeltaPct: delta,
     signalState: "confirmed" as const,
     blockedBy: [],
-    policyReason: `Stateful confirmation: ${signal.readiness} ${signal.setup} signal passed a later closed candle; target ${target.toFixed(2)}% versus current ${current.currentAllocationPct.toFixed(2)}%${confidenceMode === "evidence_weighted" ? `; execution confidence ${confidence.toFixed(3)} combines source/current evidence and deterministic confirmation` : ""}.`,
+    policyReason: `Model2 V1 confirmation: ${signal.readiness} ${signal.setup} signal passed a later closed candle; target ${target.toFixed(2)}% versus current ${current.currentAllocationPct.toFixed(2)}%; execution confidence ${confidence.toFixed(3)} combines source/current Jev evidence and deterministic confirmation.`,
   };
 }
 
-export async function applyStatefulConfirmation(input: {
+export async function applyConfirmation(input: {
   scopeId: string;
   experimentId?: string | null;
-  engine: StrategyEngine;
+  engineId: string;
   cycleKey: string;
   capturedAt: string;
   decisions: JevDecision[];
   indicators: Record<TradeAsset, MarketIndicatorState>;
 }) {
-  if (!input.engine.statefulConfirmation) return input.decisions;
-  const active = await getActiveSignals(input.scopeId, input.engine.id);
+  const active = await getActiveSignals(input.scopeId, input.engineId);
   const byAsset = new Map(active.map((signal) => [signal.asset, signal]));
   const output: JevDecision[] = [];
 
@@ -301,7 +294,6 @@ export async function applyStatefulConfirmation(input: {
           decision,
           signal.sourceDecision,
           signal,
-          input.engine.confirmationConfidence,
         );
         signal = undefined;
       } else {
@@ -315,7 +307,7 @@ export async function applyStatefulConfirmation(input: {
           action: "hold",
           signalState: "pending",
           blockedBy: [...new Set(pendingBlockers)],
-          policyReason: `${decision.policyReason} An active ${signal.readiness} signal is awaiting a later closed-candle confirmation.`,
+          policyReason: `${decision.policyReason} Model2 V1 is awaiting a later closed-candle confirmation for the active ${signal.readiness} signal.`,
         };
       }
     }
@@ -325,7 +317,7 @@ export async function applyStatefulConfirmation(input: {
       await createPendingSignal({
         scopeId: input.scopeId,
         experimentId: input.experimentId ?? null,
-        engineId: input.engine.id,
+        engineId: input.engineId,
         cycleKey: input.cycleKey,
         capturedAt: input.capturedAt,
         decision,

@@ -1,7 +1,7 @@
 import { choice, noul, score, TypeSafeClient, type EntryType } from "@typesafe-ai/sdk";
-import type { JevTradingState } from "../jev";
-import type { JevAssetJudgments, TradeAsset } from "../types";
-import { assertBlindPayload, BLIND_SLOTS, buildBlindNumericState, type BlindCandidateNumericState, type BlindSlot } from "./blind";
+import type { JevTradingState } from "../../../../jev";
+import type { JevAssetJudgments, TradeAsset } from "../../../../types";
+import { assertBlindPayload, BLIND_SLOTS, buildBlindNumericState, type BlindCandidateNumericState, type BlindSlot } from "../../../platform/blind-market";
 
 function movement(value: number, atr: number) {
   const normalized = value / Math.max(atr, 0.01);

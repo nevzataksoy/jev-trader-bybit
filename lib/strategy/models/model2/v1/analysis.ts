@@ -6,9 +6,9 @@ import type {
   MarketIndicatorState,
   PositionContext,
   TradeAsset,
-} from "../types";
-import { TRADE_ASSETS } from "../types";
-import type { RotationAssetJudgment, RotationAction } from "./model2-policy";
+} from "../../../../types";
+import { TRADE_ASSETS } from "../../../../types";
+import type { RotationAssetJudgment, RotationAction } from "./normalizer";
 
 function clamp(value: number) {
   return Math.min(1, Math.max(0, value));

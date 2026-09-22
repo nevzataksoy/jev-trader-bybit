@@ -1,4 +1,4 @@
-import type { getTradingConfig } from "../config";
+import type { ModelConfig } from "./config";
 import type {
   AssetId,
   DecisionBlocker,
@@ -12,17 +12,10 @@ import type {
   TradeAction,
   TradeAsset,
   TradingSetup,
-} from "../types";
-import { TRADE_ASSETS } from "../types";
+} from "../../../../types";
+import { TRADE_ASSETS } from "../../../../types";
 
-type TradingConfig = ReturnType<typeof getTradingConfig>;
-
-export type StatefulPolicyProfile = "model1" | "model2";
-
-export interface StatefulPolicyIdentity {
-  profile: StatefulPolicyProfile;
-  revision: string;
-}
+type TradingConfig = ModelConfig;
 
 interface StatefulOpportunity {
   setup: TradingSetup;
@@ -198,7 +191,7 @@ function evaluateOpportunity(
   };
 }
 
-export function buildStatefulPortfolioJudgments(
+export function buildPortfolioJudgments(
   judgments: Record<TradeAsset, JevAssetJudgments>,
   config: TradingConfig,
 ): JevPortfolioJudgments {
@@ -268,8 +261,7 @@ function evidenceProbabilities(judgments: JevAssetJudgments, held: boolean): Rec
   return { buy: buyEvidence / total, sell: sellEvidence / total, hold: holdEvidence / total };
 }
 
-export function buildStatefulDecisions(
-  identity: StatefulPolicyIdentity,
+export function buildDecisions(
   judgments: Record<TradeAsset, JevAssetJudgments>,
   portfolioJudgments: JevPortfolioJudgments,
   indicators: Record<TradeAsset, MarketIndicatorState>,
@@ -277,7 +269,7 @@ export function buildStatefulDecisions(
   feePctByAsset: Record<TradeAsset, number>,
   config: TradingConfig,
 ): JevDecision[] {
-  const { profile, revision } = identity;
+  const availableCashPct = Math.max(0, 100 - TRADE_ASSETS.reduce((sum, asset) => sum + positions[asset].allocation_pct, 0));
   const opportunities = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, evaluateOpportunity(
     judgments[asset], indicators[asset], positions[asset], feePctByAsset[asset], config,
   )])) as Record<TradeAsset, StatefulOpportunity>;
@@ -291,16 +283,18 @@ export function buildStatefulDecisions(
   const targets = Object.fromEntries(TRADE_ASSETS.map((asset) => {
     const opportunity = opportunities[asset];
     const current = Math.min(positions[asset].allocation_pct, config.maxAssetAllocationPct * 100);
-    if (opportunity.reduce) return [asset, 0];
+    if (opportunity.reduce) return [asset, current * (1 - config.sellPctOfHolding)];
     if (!opportunity.candidate) return [asset, current];
-    const strong = judgments[asset].setup_quality.score >= 3
-      && opportunity.confidence >= 0.75
-      && judgments[asset].liquidity_ok >= 0.75;
-    const firstTranche = (profile === "model2" && strong
-      ? config.strongInitialEntryPctOfPortfolio
-      : config.initialEntryPctOfPortfolio) * 100;
+    const firstTranche = config.initialEntryPctOfPortfolio * 100;
     const preferenceMultiplier = asset === preferred ? 1 : separation >= 2 ? 0.75 : 0.9;
-    const desiredIncrease = firstTranche * preferenceMultiplier;
+    const volatilityScale = Math.min(
+      1,
+      config.targetDailyVolatilityPct / Math.max(indicators[asset].realized_volatility_24h_pct, 0.1),
+    );
+    const cashCapPct = positions[asset].status === "held"
+      ? availableCashPct * config.buyPctOfUsdt
+      : firstTranche;
+    const desiredIncrease = Math.min(firstTranche * preferenceMultiplier, cashCapPct) * volatilityScale;
     return [asset, Math.min(config.maxAssetAllocationPct * 100, Math.max(current, current + desiredIncrease))];
   })) as Record<TradeAsset, number>;
 
@@ -346,7 +340,7 @@ export function buildStatefulDecisions(
       readinessScore: opportunity.readinessScore,
       signalState: state,
       blockedBy: uniqueBlockers,
-      policyReason: `${profile === "model2" ? `Model2 ${revision} rotation` : `Model1 ${revision}`}; readiness probability score ${opportunity.readinessScore.toFixed(3)}; `
+      policyReason: `Model1 V1; readiness probability score ${opportunity.readinessScore.toFixed(3)}; `
         + `unified ${portfolioJudgments.gross_risk_budget.choice} risk budget ${grossRiskBudgetPct.toFixed(2)}%; `
         + `target ${target.toFixed(2)}% versus current ${current.toFixed(2)}%; `
         + (uniqueBlockers.length ? `blocked by ${uniqueBlockers.join(", ")}.` : "eligible for deterministic execution."),

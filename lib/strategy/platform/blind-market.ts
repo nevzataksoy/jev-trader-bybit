@@ -1,7 +1,7 @@
 import { getTradingConfig } from "../config";
-import type { JevTradingState } from "../jev";
-import type { MarketIndicatorState, PositionContext, TradeAsset } from "../types";
-import { TRADE_ASSETS } from "../types";
+import type { JevTradingState } from "../../jev";
+import type { MarketIndicatorState, PositionContext, TradeAsset } from "../../types";
+import { TRADE_ASSETS } from "../../types";
 
 export const BLIND_SLOTS = ["candidate_1", "candidate_2", "candidate_3"] as const;
 export type BlindSlot = (typeof BLIND_SLOTS)[number];

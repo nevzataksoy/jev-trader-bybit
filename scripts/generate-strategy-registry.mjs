@@ -27,7 +27,7 @@ for (const model of models) {
     throw new Error(`Strategy model filename must be a kebab-case engine id: ${model.file}`);
   }
   const source = await readFile(join(modelsDirectory, model.file), "utf8");
-  const siblingImports = [...source.matchAll(/(?:from\\s+["\']|import\\s+["\']|import\\s*\\(\\s*["\'])(\\.\\/[^"\']+)["\']/g)]
+  const siblingImports = [...source.matchAll(/(?:from\s+["\']|import\s+["\']|import\s*\(\s*["\'])(\.\/[^"\']+)["\']/g)]
     .map((match) => match[1]);
   if (siblingImports.length) {
     throw new Error(`Strategy model ${model.file} imports sibling model path(s): ${siblingImports.join(", ")}. Shared code must live outside lib/strategy/models so deleting one model file cannot break another.`);

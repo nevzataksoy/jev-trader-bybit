@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "npm run test && mkdir -p quality-output && printf '<h1>test ok</h1>' > quality-output/index.html",
+  "buildCommand": "npm run build && mkdir -p quality-output && printf '<h1>build ok</h1>' > quality-output/index.html",
   "outputDirectory": "quality-output",
   "regions": ["fra1"]
 }

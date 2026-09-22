@@ -5,6 +5,7 @@ import { finalizeBlindRotationEvidence } from "./analysis";
 import { applyConfirmation } from "./confirmation";
 import { getModelConfig } from "./config";
 import { buildBlindModel2State, evaluateBlindModel2Evidence } from "./evaluator";
+import { orderDecisions, planExecution as planModelExecution } from "./execution";
 import { buildRotationJevJudgments } from "./normalizer";
 import { buildDecisions, buildPortfolioJudgments } from "./policy";
 
@@ -12,6 +13,8 @@ export const model2V1Engine: StrategyEngine = {
   id: "model2-v1",
   family: "model2",
   version: "v1",
+  orderDecisions,
+  planExecution: (decision, context) => planModelExecution(decision, context, getModelConfig()),
   buildAuditState: (state) => buildBlindModel2State(state).state,
   async evaluate(engineState, runtime) {
     const evidence = await evaluateBlindModel2Evidence(engineState);

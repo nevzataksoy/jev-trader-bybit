@@ -1,5 +1,11 @@
 import type { JevTradingState } from "../jev";
-import type { JevResponse } from "../types";
+import type {
+  JevDecision,
+  JevResponse,
+  MarketIndicatorState,
+  PositionContext,
+  SpotBalance,
+} from "../types";
 
 export type StrategyEngineId = string;
 
@@ -16,10 +22,27 @@ export interface StrategyEngineResult extends JevResponse {
   latencyMs: number;
 }
 
+export interface StrategyExecutionContext {
+  market: MarketIndicatorState;
+  balances: SpotBalance[];
+  totalPortfolioUsdt: number;
+  position: PositionContext;
+  minTradeUsdt: number;
+}
+
+export interface StrategyExecutionIntent {
+  allowed: boolean;
+  reason: string;
+  buyPctOfUsdt: number;
+  sellPctOfHolding: number;
+}
+
 export interface StrategyEngine {
   id: StrategyEngineId;
   family: string;
   version: string;
   buildAuditState?(state: JevTradingState): unknown;
+  orderDecisions(decisions: JevDecision[]): JevDecision[];
+  planExecution(decision: JevDecision, context: StrategyExecutionContext): StrategyExecutionIntent;
   evaluate(state: JevTradingState, runtime: StrategyRuntimeContext): Promise<StrategyEngineResult>;
 }

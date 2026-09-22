@@ -77,6 +77,7 @@ Model sürüm klasörü ise kendi stratejik kararlarının sahibidir:
 - setup / readiness değerlendirmesi
 - opportunity ve portfolio scoring
 - allocation politikası
+- execution sizing ve karar sıralaması
 - model-özel parametreler
 - wait_close / wait_retest mantığı
 - deterministic confirmation
@@ -227,6 +228,7 @@ Each version directory owns its strategy:
 - setup/readiness logic
 - opportunity and portfolio scoring
 - allocation policy
+- execution sizing and decision ordering
 - model-specific parameters
 - wait_close / wait_retest state
 - deterministic confirmation

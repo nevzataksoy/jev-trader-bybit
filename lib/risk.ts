@@ -1,4 +1,5 @@
 import type { getTradingConfig } from "./config";
+import type { StrategyExecutionIntent } from "./strategy/types";
 import type {
   FeeRate,
   JevDecision,
@@ -21,6 +22,7 @@ export interface ExecutionContext {
   position: PositionContext;
   fee: FeeRate;
   portfolioRisk: PortfolioRiskContext;
+  strategyIntent?: StrategyExecutionIntent;
 }
 
 function deny(reason: string): ExecutionPlan {
@@ -37,6 +39,7 @@ export function createExecutionPlan(
   now = Date.now(),
 ): ExecutionPlan {
   if (decision.action === "hold") return deny("Jev selected hold for this cycle.");
+  if (context.strategyIntent && !context.strategyIntent.allowed) return deny(context.strategyIntent.reason);
   const requiredConfidence = decision.action === "sell" ? config.minSellConfidence : config.minConfidence;
   if (decision.confidence < requiredConfidence) {
     return deny(`Confidence ${decision.confidence.toFixed(3)} is below ${requiredConfidence.toFixed(3)}.`);
@@ -58,7 +61,8 @@ export function createExecutionPlan(
     }
     const currentAllocation = Math.max(decision.currentAllocationPct, context.position.allocation_pct, 0.0001);
     const targetReductionFraction = Math.max(0, -decision.rebalanceDeltaPct) / currentAllocation;
-    const sellPctOfHolding = Math.min(1, targetReductionFraction);
+    const requestedSellPct = context.strategyIntent?.sellPctOfHolding ?? targetReductionFraction;
+    const sellPctOfHolding = Math.min(1, targetReductionFraction, Math.max(0, requestedSellPct));
     if (sellPctOfHolding * assetBalance.usdtValue < config.minTradeUsdt) {
       return deny("Target allocation delta is below the minimum executable sale amount.");
     }
@@ -94,13 +98,18 @@ export function createExecutionPlan(
   const spendableAfterReserve = Math.max(0, freeUsdt - reserve);
   const allocationCapacity = Math.max(0, totalPortfolioUsdt * config.maxAssetAllocationPct - (assetBalance?.usdtValue ?? 0));
   const targetDeltaSpend = Math.max(0, decision.rebalanceDeltaPct) / 100 * totalPortfolioUsdt;
-  const approvedSpend = Math.min(targetDeltaSpend, spendableAfterReserve, allocationCapacity);
+  const requestedSpend = context.strategyIntent
+    ? freeUsdt * Math.min(1, Math.max(0, context.strategyIntent.buyPctOfUsdt))
+    : targetDeltaSpend;
+  const approvedSpend = Math.min(requestedSpend, targetDeltaSpend, spendableAfterReserve, allocationCapacity);
   if (approvedSpend < config.minTradeUsdt) {
     return deny("USDT reserve or per-asset allocation limit leaves no valid buy budget.");
   }
   return {
     allowed: true,
-    reason: "Buy passed platform safety gates; execution follows the model version's target allocation delta.",
+    reason: context.strategyIntent
+      ? `${context.strategyIntent.reason} Platform safety gates passed.`
+      : "Buy passed platform safety gates; execution follows the model version's target allocation delta.",
     buyPctOfUsdt: approvedSpend / freeUsdt,
     sellPctOfHolding: 0,
   };

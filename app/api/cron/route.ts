@@ -15,7 +15,7 @@ import {
 } from "@/lib/db";
 import { getSafeErrorMessage } from "@/lib/errors";
 import { reconcileExecutions } from "@/lib/execution";
-import { buildPositionContexts, rankDecisionsForExecution } from "@/lib/portfolio";
+import { buildPositionContexts } from "@/lib/portfolio";
 import {
   calculatePortfolioTotal,
   executeMarketBuy,
@@ -227,7 +227,7 @@ export async function GET(request: Request) {
     const riskBalances = balances.map((balance) => ({ ...balance }));
     let submittedBuyCount = 0;
 
-    for (const decision of rankDecisionsForExecution(result.decisions)) {
+    for (const decision of engine.orderDecisions(result.decisions)) {
       const symbol = SYMBOLS[decision.asset];
       if (!routing.allowed) {
         executions.push({ engineId, asset: decision.asset, symbol, action: decision.action, status: "disabled", reason: routingReason(routing.reason) });
@@ -237,13 +237,20 @@ export async function GET(request: Request) {
         executions.push({ engineId, asset: decision.asset, symbol, action: decision.action, status: "skipped", reason: "A higher-ranked buy already consumed this cycle's new-exposure budget." });
         continue;
       }
+      const strategyIntent = engine.planExecution(decision, {
+        market: indicators[decision.asset],
+        balances: riskBalances,
+        totalPortfolioUsdt,
+        position: positions[decision.asset],
+        minTradeUsdt: trading.minTradeUsdt,
+      });
       const plan = createExecutionPlan(
         decision,
         indicators[decision.asset],
         riskBalances,
         totalPortfolioUsdt,
         trading,
-        { position: positions[decision.asset], fee: fees[decision.asset], portfolioRisk },
+        { position: positions[decision.asset], fee: fees[decision.asset], portfolioRisk, strategyIntent },
       );
       if (!plan.allowed) {
         executions.push({ engineId, asset: decision.asset, symbol, action: decision.action, status: decision.action === "hold" ? "held" : "skipped", reason: plan.reason });

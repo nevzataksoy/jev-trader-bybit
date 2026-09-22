@@ -4,12 +4,15 @@ import type { StrategyEngine } from "../../../types";
 import { applyConfirmation } from "./confirmation";
 import { getModelConfig } from "./config";
 import { buildBlindModel1State, evaluateBlindModel1Evidence } from "./evaluator";
+import { orderDecisions, planExecution as planModelExecution } from "./execution";
 import { buildDecisions, buildPortfolioJudgments } from "./policy";
 
 export const model1V1Engine: StrategyEngine = {
   id: "model1-v1",
   family: "model1",
   version: "v1",
+  orderDecisions,
+  planExecution: (decision, context) => planModelExecution(decision, context, getModelConfig()),
   buildAuditState: (state) => buildBlindModel1State(state).state,
   async evaluate(engineState, runtime) {
     const evidence = await evaluateBlindModel1Evidence(engineState);

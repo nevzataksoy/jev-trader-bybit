@@ -1,7 +1,6 @@
 import { SYMBOLS, getTradingConfig } from "../config";
 import { getSafeErrorMessage } from "../errors";
 import type { JevTradingState } from "../jev";
-import { rankDecisionsForExecution } from "../portfolio";
 import { createExecutionPlan } from "../risk";
 import type {
   BotExecutionResult,
@@ -93,19 +92,26 @@ export async function runPaperEngineCycle(
     const workingBalances = paper.balances.map((balance) => ({ ...balance }));
     let buyCount = 0;
 
-    for (const decision of rankDecisionsForExecution(result.decisions)) {
+    for (const decision of engine.orderDecisions(result.decisions)) {
       const symbol = SYMBOLS[decision.asset];
       if (decision.action === "buy" && buyCount >= trading.maxBuysPerCycle) {
         executions.push({ asset: decision.asset, symbol, action: decision.action, status: "skipped", reason: "A higher-ranked paper buy consumed this cycle's exposure budget." });
         continue;
       }
+      const strategyIntent = engine.planExecution(decision, {
+        market: shared.indicators[decision.asset],
+        balances: workingBalances,
+        totalPortfolioUsdt: paper.totalPortfolioUsdt,
+        position: paper.positions[decision.asset],
+        minTradeUsdt: trading.minTradeUsdt,
+      });
       const plan = createExecutionPlan(
         decision,
         shared.indicators[decision.asset],
         workingBalances,
         paper.totalPortfolioUsdt,
         trading,
-        { position: paper.positions[decision.asset], fee: shared.fees[decision.asset], portfolioRisk: paper.portfolioRisk },
+        { position: paper.positions[decision.asset], fee: shared.fees[decision.asset], portfolioRisk: paper.portfolioRisk, strategyIntent },
         new Date(shared.capturedAt).getTime(),
       );
       if (!plan.allowed) {

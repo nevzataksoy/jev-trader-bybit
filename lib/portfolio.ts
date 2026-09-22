@@ -72,18 +72,3 @@ export function buildPositionContexts(
     return [asset, context];
   })) as Record<TradeAsset, PositionContext>;
 }
-
-export function rankDecisionsForExecution(decisions: JevDecision[]) {
-  const priority = { sell: 0, buy: 1, hold: 2 } as const;
-  return [...decisions].sort((left, right) => {
-    const actionOrder = priority[left.action] - priority[right.action];
-    if (actionOrder !== 0) return actionOrder;
-    const leftEdge = left.probabilities[left.action] - Math.max(...Object.entries(left.probabilities)
-      .filter(([action]) => action !== left.action)
-      .map(([, probability]) => probability));
-    const rightEdge = right.probabilities[right.action] - Math.max(...Object.entries(right.probabilities)
-      .filter(([action]) => action !== right.action)
-      .map(([, probability]) => probability));
-    return (right.confidence + rightEdge) - (left.confidence + leftEdge);
-  });
-}

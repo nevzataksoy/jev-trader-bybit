@@ -11,7 +11,7 @@ Bu repo temiz başlangıç mimarisine geçirilmiştir. Eski V1/V2/V3/V4 isim zin
 - `model1-v1`
 - `model2-v1`
 
-Varsayılan A/B karşılaştırması `model1-v1` ve `model2-v1` arasında çalışır.
+Aktif 42 günlük A/B karşılaştırması `model1-v1` ve `model2-v2` arasında çalışır. Bu pencere içinde onaylı davranış değişiklikleri yeni experiment açmadan `policyRevision` / `configRevision` ile audit edilir; başlangıç/bitiş tarihi ve paper portföy korunur.
 
 ### Temel mimari kural
 
@@ -123,9 +123,18 @@ Varsayılan:
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_ENGINE_IDS=model1-v1,model2-v1
-AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+AB_ENGINE_IDS=model1-v1,model2-v2
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
 ```
+
+
+### 42 günlük in-place revision ve yapısal trade ekonomisi
+
+Aktif deneyde engine kimlikleri, paper portföyler ve 42 günlük başlangıç/bitiş tarihi korunur. Strateji/config revizyonları `engine_revisions` tablosunda tekil tutulur; her `engine_run` yalnız `revision_id` taşır. Aynı config JSON her 15 dakikada tekrar yazılmaz.
+
+Entry/exit ekonomisi artık global `ATR/cost >= 2.50` hard gate'ine bağlı değildir. Modeller 15m/1h/4h destek-direnc yapısı, hedef alanı, invalidation mesafesi, reward/risk ve tahmini round-trip maliyeti; RSI/MACD/BB/ADX/VWAP, orderbook wall/flow, OI/funding ve makro bağlamla birlikte değerlendirir. Platform stale data, spread, drawdown, aşırı volatilite, reserve/allocation ve order limitleri gibi operasyonel hard safety kontrollerini korur.
+
+Market/makro kanıtı cycle başına tek `shared_market_snapshots` satırında tutulur. Skipped/rejected BUY/SELL denemeleri duplicate order üretmeden mevcut `engine_runs.executions` üzerinden `/models` ekranında görünür. Cleanup ayrı cron kullanmaz; normal 15 dakikalık cron sonunda çalışır.
 
 ### Dashboard ve runtime endpoint ayrımı
 
@@ -178,7 +187,7 @@ The repository now uses a clean-baseline model architecture. Historical V1/V2/V3
 - `model1-v1`
 - `model2-v1`
 
-The default A/B experiment compares those two engines.
+The active 42-day A/B experiment compares `model1-v1` with `model2-v2`. Approved refinements inside this window are audited with `policyRevision` / `configRevision` without resetting the experiment clock or paper portfolios.
 
 ### Core architecture rule
 
@@ -268,6 +277,15 @@ paper execution / persistence
 ```
 
 Real exchange routing is hard-disabled while `STRATEGY_RUN_MODE=ab_test`.
+
+
+### 42-day in-place revisions and structural trade economics
+
+The active experiment keeps engine identities, paper portfolios and its planned 42-day start/end window. Policy/config changes are stored once in `engine_revisions`; each `engine_run` carries only a compact `revision_id`.
+
+Entry economics no longer depend on a shared fixed `ATR/cost >= 2.50` hard gate. Model policy evaluates multi-timeframe support/resistance, target room, invalidation distance, reward/risk and estimated round-trip costs, reinforced by RSI/MACD/BB/ADX/VWAP, orderbook flow/walls, OI/funding and macro context. Shared platform risk retains operational hard-safety gates.
+
+Shared market/macro evidence stays deduplicated in one cycle snapshot. Skipped execution attempts reuse `engine_runs.executions` and are surfaced in `/models`; cleanup continues at the end of every normal 15-minute cron cycle with no separate cleanup cron.
 
 ### Dashboard and runtime endpoint split
 

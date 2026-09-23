@@ -128,7 +128,7 @@ function regimeQuestion(slot: BlindSlot) {
 }
 
 function setupQuestion(slot: BlindSlot) {
-  return choice({ objective: `Select the best long-only setup supported by state.candidates.${slot}.`, constraints: ["Select none without positive executable evidence.", "A range entry belongs near a lower boundary.", "A breakout needs participation.", "Do not output an order."] }, { trend_pullback: "Orderly pullback in an intact rise.", upside_breakout: "Accepted upper-boundary break.", range_reversion: "Supported lower-boundary mean reversion.", bear_rebound: "Confirmed tactical rebound in a decline.", reduce: "Existing long thesis is deteriorating.", none: "No executable setup." });
+  return choice({ objective: `Select the best long-only setup supported by state.candidates.${slot}.`, constraints: ["Select none without positive executable evidence.", "Prefer entries near a supported structural zone or after accepted resistance breakout.", "A range entry belongs near support; a breakout needs participation and acceptance.", "Do not output an order."] }, { trend_pullback: "Orderly pullback in an intact rise.", upside_breakout: "Accepted upper-boundary break.", range_reversion: "Supported lower-boundary mean reversion.", bear_rebound: "Confirmed tactical rebound in a decline.", reduce: "Existing long thesis is deteriorating.", none: "No executable setup." });
 }
 
 function readinessQuestion(slot: BlindSlot) {
@@ -136,7 +136,7 @@ function readinessQuestion(slot: BlindSlot) {
 }
 
 function directionQuestion(slot: BlindSlot) {
-  return choice({ objective: `Judge executable direction for state.candidates.${slot} over the next one to four decision cycles.`, constraints: ["Use unclear when evidence conflicts."] }, { up: "Higher after costs is more likely.", down: "Lower is more likely.", unclear: "No separated direction." });
+  return choice({ objective: `Judge executable direction for state.candidates.${slot} over the next one to four decision cycles.`, constraints: ["Use unclear when evidence conflicts.", "Use target room, invalidation structure, persistent liquidity and round-trip cost together; ATR alone is not a trade target."] }, { up: "Higher after costs is more likely.", down: "Lower is more likely.", unclear: "No separated direction." });
 }
 
 function followThroughQuestion(slot: BlindSlot) {
@@ -144,7 +144,7 @@ function followThroughQuestion(slot: BlindSlot) {
 }
 
 function setupQualityQuestion(slot: BlindSlot) {
-  return score({ objective: `Score setup quality for state.candidates.${slot}.`, constraints: ["Score evidence agreement and tradability, not excitement."] }, ["No usable setup.", "Weak setup.", "Developing setup.", "Coherent setup.", "Exceptional setup."]);
+  return score({ objective: `Score setup quality for state.candidates.${slot}.`, constraints: ["Score multi-timeframe support/resistance agreement, price action, participation, persistent liquidity and positioning.", "Global macro evidence is a modifier, not a standalone trigger.", "Score evidence agreement and tradability, not excitement."] }, ["No usable setup.", "Weak setup.", "Developing setup.", "Coherent setup.", "Exceptional setup."]);
 }
 
 function falseBreakoutQuestion(slot: BlindSlot) {

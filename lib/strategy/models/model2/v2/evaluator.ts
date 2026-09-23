@@ -13,7 +13,7 @@ function regimeQuestion(slot: BlindSlot) {
 
 function suitabilityQuestion(slot: BlindSlot) {
   return choice(
-    { objective: `Classify long-entry suitability for state.candidates.${slot}; this is evidence, not an order.`, constraints: ["Strong requires structure, timing, participation and positive cost-adjusted opportunity.", "Near an upper range boundary requires an accepted breakout.", "Do not become optimistic because application code owns risk."] },
+    { objective: `Classify long-entry suitability for state.candidates.${slot}; this is evidence, not an order.`, constraints: ["Strong requires evidence-backed support or accepted resistance breakout, timing, participation and positive cost-adjusted opportunity.", "Prefer meaningful room from support toward resistance over raw short-horizon volatility.", "Use persistent orderbook walls, trade flow and positioning as confirmation rather than standalone signals.", "Near an upper range boundary requires an accepted breakout.", "Do not become optimistic because application code owns risk."] },
     { strong: "Coherent and executable now.", moderate: "Promising but not exceptional.", watch: "Developing and needs confirmation.", reject: "No justified risk-increasing entry." },
   );
 }
@@ -27,7 +27,7 @@ function thesisHealthQuestion(slot: BlindSlot) {
 
 function timingQuestion(slot: BlindSlot) {
   return choice(
-    { objective: `Judge timing for state.candidates.${slot} at this closed-candle boundary.`, constraints: ["A moving price alone is not confirmation."] },
+    { objective: `Judge timing for state.candidates.${slot} at this closed-candle boundary.`, constraints: ["A moving price alone is not confirmation.", "Use support retests, resistance acceptance, closed candles, flow and participation together."] },
     { enter_now: "Confirmed now.", wait_close: "Needs another close.", wait_retest: "Needs boundary retest.", no_entry: "No risk-increasing entry." },
   );
 }
@@ -47,7 +47,7 @@ function planQualityQuestion(slot: BlindSlot) {
 }
 
 function invalidationQuestion(slot: BlindSlot) {
-  return noul({ objective: `Is the long thesis in state.candidates.${slot} invalidated?`, constraints: ["Use structure, downside distribution, volatility and flow together."] });
+  return noul({ objective: `Is the long thesis in state.candidates.${slot} invalidated?`, constraints: ["Use support failure, resistance rejection, downside distribution, volatility, flow and positioning together."] });
 }
 
 function liquidityQuestion(slot: BlindSlot) {

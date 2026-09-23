@@ -33,13 +33,13 @@ export function getEngineRevision(engine: StrategyEngine) {
   const revisionId = digest({
     engineId: engine.id,
     engineVersion: engine.version,
-    policyRevision: engine.policyRevision,
+    policyRevision: engine.policyRevision ?? `${engine.version}-legacy`,
     configRevision,
     sourceRevision,
   });
   return {
     revisionId,
-    policyRevision: engine.policyRevision,
+    policyRevision: engine.policyRevision ?? `${engine.version}-legacy`,
     configRevision,
     sourceRevision,
     configSnapshot,

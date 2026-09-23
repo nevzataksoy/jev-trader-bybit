@@ -13,7 +13,7 @@ function regimeQuestion(slot: BlindSlot) {
 
 function suitabilityQuestion(slot: BlindSlot) {
   return choice(
-    { objective: `Classify long-entry suitability for state.candidates.${slot}; this is evidence, not an order.`, constraints: ["Strong requires structure, timing, participation and positive cost-adjusted opportunity.", "Near an upper range boundary requires an accepted breakout.", "Do not become optimistic because application code owns risk."] },
+    { objective: `Classify long-entry suitability for state.candidates.${slot}; this is evidence, not an order.`, constraints: ["Strong requires structural support or an accepted breakout, coherent timing, participation and target room beyond round-trip cost.", "Use support/resistance zone distance and strength, persistent order-book walls, trade flow and leveraged positioning when available.", "Near resistance without accepted breakout is not a strong long entry.", "Do not become optimistic because application code owns risk."] },
     { strong: "Coherent and executable now.", moderate: "Promising but not exceptional.", watch: "Developing and needs confirmation.", reject: "No justified risk-increasing entry." },
   );
 }
@@ -27,21 +27,21 @@ function thesisHealthQuestion(slot: BlindSlot) {
 
 function timingQuestion(slot: BlindSlot) {
   return choice(
-    { objective: `Judge timing for state.candidates.${slot} at this closed-candle boundary.`, constraints: ["A moving price alone is not confirmation."] },
+    { objective: `Judge timing for state.candidates.${slot} at this closed-candle boundary.`, constraints: ["A moving price alone is not confirmation.", "Prefer wait_retest near structural boundaries when support or breakout acceptance still needs validation.", "Use persistent wall/flow evidence as confirmation, not as a substitute for price structure."] },
     { enter_now: "Confirmed now.", wait_close: "Needs another close.", wait_retest: "Needs boundary retest.", no_entry: "No risk-increasing entry." },
   );
 }
 
 function directionQuestion(slot: BlindSlot) {
   return choice(
-    { objective: `Judge cost-adjusted direction for state.candidates.${slot} over the next one to four hours.`, constraints: ["Choose unclear when evidence is not separated."] },
+    { objective: `Judge cost-adjusted direction for state.candidates.${slot} over the next one to four hours.`, constraints: ["Choose unclear when evidence is not separated.", "Compare available structural target room with round-trip cost and invalidation risk rather than relying on ATR alone."] },
     { up: "Upside more likely.", down: "Downside more likely.", unclear: "No separated direction." },
   );
 }
 
 function planQualityQuestion(slot: BlindSlot) {
   return score(
-    { objective: `Score evidence quality for a possible long plan in state.candidates.${slot}.`, constraints: ["Do not choose position size or authorize a trade."] },
+    { objective: `Score evidence quality for a possible long plan in state.candidates.${slot}.`, constraints: ["Reward multi-timeframe support/resistance alignment, clean price action, persistent liquidity, confirming flow and positioning.", "Global macro evidence is a regime modifier, not a standalone entry trigger.", "Do not choose position size or authorize a trade."] },
     ["No defensible setup.", "Weak setup.", "Developing setup.", "Coherent setup.", "Exceptional multi-factor setup."],
   );
 }

@@ -42,7 +42,7 @@ function clamp(value: number, minimum = 0, maximum = 1) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-function finite(value: number | undefined, fallback = 0) {
+function finite(value: number | null | undefined, fallback = 0) {
   return Number.isFinite(value) ? value! : fallback;
 }
 

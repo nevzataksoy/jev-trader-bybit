@@ -453,6 +453,7 @@ export interface DatabaseCleanupResult {
   orphanedMarketSnapshots: number;
   expiredPendingSignals: number;
   deletedPendingSignals: number;
+  orphanedEngineRevisions: number;
 }
 
 export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
@@ -468,6 +469,7 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       orphanedMarketSnapshots: 0,
       expiredPendingSignals: 0,
       deletedPendingSignals: 0,
+      orphanedEngineRevisions: 0,
     };
   }
   await ensureDatabase();
@@ -557,6 +559,12 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
         AND COALESCE(resolved_at, created_at) < NOW() - (LEAST(${retention.experimentRetentionDays}, 30) * INTERVAL '1 day')
       RETURNING id
     `;
+    const orphanedEngineRevisions = await transaction`
+      DELETE FROM engine_revisions revision
+      WHERE revision.created_at < NOW() - INTERVAL '1 day'
+        AND NOT EXISTS (SELECT 1 FROM engine_runs run WHERE run.revision_id = revision.id)
+      RETURNING id
+    `;
     return {
       archivedDailySnapshots,
       expiredRuns: expiredRuns.length,
@@ -568,6 +576,7 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       orphanedMarketSnapshots: orphanedMarketSnapshots.length,
       expiredPendingSignals: expiredPendingSignals.length,
       deletedPendingSignals: deletedPendingSignals.length,
+      orphanedEngineRevisions: orphanedEngineRevisions.length,
     };
   });
 }

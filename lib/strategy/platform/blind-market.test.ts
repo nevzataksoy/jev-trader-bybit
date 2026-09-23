@@ -10,12 +10,19 @@ function market(symbol: string, price: number, return24h: number): MarketIndicat
   return {
     symbol, source: "bybit-mainnet", collected_at: observedAt, observed_at: observedAt, ticker_at: observedAt, orderbook_at: observedAt, last_closed_15m_at: "2026-09-21T12:15:00.000Z",
     last_price: price, change_24h_pct: return24h, turnover_24h_usdt: 123_456_789, return_15m_pct: 0.2, return_1h_pct: 0.4, return_4h_pct: -0.3, return_24h_pct: return24h, return_7d_pct: 2.1, return_30d_pct: -1.2, relative_strength_vs_btc_24h_pct: 99,
-    ema_9: price * 0.995, ema_21: price * 0.99, ema_50: price * 0.98, ema_200: price * 0.9, ema_50_slope_3h_pct: 0.1, rsi_14: 54, atr_14: price * 0.02, atr_14_pct: 2, bb_upper: price * 1.05, bb_lower: price * 0.95, bb_width_pct: 10, bb_position: 0.3, macd_hist: price * 0.001,
+    ema_9: price * 0.995, ema_21: price * 0.99, ema_50: price * 0.98, ema_200: price * 0.9, ema_50_slope_3h_pct: 0.1, rsi_14: 54, atr_14: price * 0.02, atr_14_pct: 2, atr_14_1h_pct: 3, atr_14_4h_pct: 5, atr_15m_percentile: 0.6, bb_upper: price * 1.05, bb_lower: price * 0.95, bb_width_pct: 10, bb_position: 0.3, macd_hist: price * 0.001,
     realized_volatility_24h_pct: 2, downside_volatility_24h_pct: 1, volume_ratio_20: 1.1, volume_zscore_20: 0.2, price_zscore_20: -0.8, distance_vwap_24h_pct: -0.2, trend_efficiency_4h: 0.4, up_fraction_4h: 0.5, return_streak_15m: 1, drawdown_20d_pct: -2,
     channel_24h_high: price * 1.05, channel_24h_low: price * 0.95, channel_24h_position: 0.2, channel_3d_high: price * 1.1, channel_3d_low: price * 0.9, channel_3d_position: 0.3, channel_7d_high: price * 1.15, channel_7d_low: price * 0.85, channel_7d_position: 0.4,
+    support_zone_low: price * 0.97, support_zone_high: price * 0.985, support_strength: 0.7,
+    resistance_zone_low: price * 1.03, resistance_zone_high: price * 1.045, resistance_strength: 0.75,
+    secondary_resistance_price: price * 1.08, support_distance_pct: 1.52, resistance_distance_pct: 3,
     distance_to_24h_high_atr: 2, distance_to_24h_low_atr: 1, breakout_24h_pct: 0, bb_width_percentile_7d: 0.4, candle_body_atr: 0.2, upper_wick_atr: 0.2, lower_wick_atr: 0.7,
     structure_12h: "mixed", adx_14: 22, plus_di_14: 24, minus_di_14: 18, trend_score: 0.2, regime: "range", countertrend_rebound_score: 0.7,
-    bid_ask_spread_pct: 0.03, orderbook_imbalance: 0.1, bid_depth_50_usdt: 100_000, ask_depth_50_usdt: 90_000, depth_ratio: 1.1, taker_buy_ratio: 0.55, trade_flow_imbalance: 0.08, trade_flow_window_seconds: 120,
+    bid_ask_spread_pct: 0.03, orderbook_imbalance: 0.1, bid_depth_50_usdt: 100_000, ask_depth_50_usdt: 90_000, depth_ratio: 1.1,
+    largest_bid_wall_price: price * 0.99, largest_bid_wall_usdt: 25_000, largest_bid_wall_distance_pct: 1,
+    bid_wall_share: 0.25, bid_wall_persistence: 0.75, largest_ask_wall_price: price * 1.02,
+    largest_ask_wall_usdt: 18_000, largest_ask_wall_distance_pct: 2, ask_wall_share: 0.2,
+    ask_wall_persistence: 0.5, orderbook_wall_bias: 0.12, taker_buy_ratio: 0.55, trade_flow_imbalance: 0.08, trade_flow_window_seconds: 120,
     open_interest_usdt_estimate: 987_654_321, open_interest_change_1h_pct: 0.5, open_interest_change_4h_pct: 1.2, funding_rate_latest_pct: 0.01, data_quality: "complete", mamis_phase: "wall_of_worry", mamis_confidence: 0.7, mamis_evidence: [`${symbol} hidden evidence`],
   };
 }

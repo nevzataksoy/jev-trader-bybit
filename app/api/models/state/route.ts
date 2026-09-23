@@ -27,6 +27,8 @@ export async function GET() {
       equity: [],
       orders: [],
       runs: [],
+      executionAttempts: [],
+      counterfactuals: [],
     } satisfies ModelsDashboardState, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
   try {
@@ -47,6 +49,8 @@ export async function GET() {
       equity: [],
       orders: [],
       runs: [],
+      executionAttempts: [],
+      counterfactuals: [],
     } satisfies ModelsDashboardState, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
 }

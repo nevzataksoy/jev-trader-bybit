@@ -30,7 +30,6 @@ export function getTradingConfig() {
     maxSpreadPct: numberFromEnv("MAX_SPREAD_PCT", 0.25, 0.001, 5),
     estimatedSlippagePct: numberFromEnv("ESTIMATED_SLIPPAGE_PCT", 0.03, 0, 2),
     maxMarketSlippagePct: numberFromEnv("MAX_MARKET_SLIPPAGE_PCT", 0.20, 0.01, 10),
-    minTradableRangeToCostRatio: numberFromEnv("MIN_TRADABLE_RANGE_TO_COST_RATIO", 2.50, 1, 20),
     maxPortfolioDrawdownPct: numberFromEnv("MAX_PORTFOLIO_DRAWDOWN_PCT", 3, 0.1, 50),
     maxCompletedOrders24h: numberFromEnv("MAX_COMPLETED_ORDERS_24H", 8, 1, 100),
     maxBuysPerCycle: Math.round(numberFromEnv("MAX_BUYS_PER_CYCLE", 2, 1, 3)),

@@ -50,10 +50,22 @@ export interface RotationAssetJudgment {
 function selectedSetup(judgment: RotationAssetJudgment, market: MarketIndicatorState): TradingSetup {
   if (judgment.action.choice === "reduce" || judgment.action.choice === "exit") return "reduce";
   if (judgment.action.choice === "hold") return "none";
-  if (judgment.regime.choice === "range") return "range_reversion";
-  if (judgment.regime.choice === "bear") return "bear_rebound";
-  if (market.channel_24h_position >= 0.9) return "upside_breakout";
-  if (judgment.regime.choice === "bull" || judgment.regime.choice === "accumulation") return "trend_pullback";
+  const atr15m = Number.isFinite(market.atr_14_pct) ? market.atr_14_pct : 0.1;
+  const atr1h = Number.isFinite(market.atr_14_1h_pct) ? market.atr_14_1h_pct : atr15m * 2;
+  const supportDistance = Number.isFinite(market.support_distance_pct)
+    ? Math.max(0, Number(market.support_distance_pct))
+    : Number.POSITIVE_INFINITY;
+  const nearSupport = supportDistance <= Math.max(atr15m * 1.25, atr1h * 0.25, 0.08);
+  const breakoutAccepted = Number.isFinite(market.resistance_zone_high)
+    ? market.last_price > Number(market.resistance_zone_high)
+    : market.channel_24h_position >= 0.9;
+  if (breakoutAccepted || market.channel_24h_position >= 0.92) return "upside_breakout";
+  if (judgment.regime.choice === "range") return nearSupport ? "range_reversion" : "none";
+  if (judgment.regime.choice === "bear") return nearSupport ? "bear_rebound" : "none";
+  if (judgment.regime.choice === "bull" || judgment.regime.choice === "accumulation") {
+    const supportStrength = Number.isFinite(market.support_strength) ? Number(market.support_strength) : 0;
+    return nearSupport || supportStrength >= 0.42 ? "trend_pullback" : "none";
+  }
   return "none";
 }
 

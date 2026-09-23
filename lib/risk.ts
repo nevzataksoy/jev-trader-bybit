@@ -16,6 +16,11 @@ export interface ExecutionPlan {
   reason: string;
   buyPctOfUsdt: number;
   sellPctOfHolding: number;
+  diagnostics?: {
+    roundTripCostPct: number;
+    atrToCostRatio: number;
+    targetToCostRatio: number;
+  };
 }
 
 export interface ExecutionContext {
@@ -25,8 +30,8 @@ export interface ExecutionContext {
   strategyIntent?: StrategyExecutionIntent;
 }
 
-function deny(reason: string): ExecutionPlan {
-  return { allowed: false, reason, buyPctOfUsdt: 0, sellPctOfHolding: 0 };
+function deny(reason: string, diagnostics?: ExecutionPlan["diagnostics"]): ExecutionPlan {
+  return { allowed: false, reason, buyPctOfUsdt: 0, sellPctOfHolding: 0, diagnostics };
 }
 
 export function createExecutionPlan(
@@ -87,9 +92,11 @@ export function createExecutionPlan(
     + market.bid_ask_spread_pct
     + config.estimatedSlippagePct * 2;
   const rangeToCostRatio = market.atr_14_pct / Math.max(roundTripCostPct, 0.0001);
-  if (rangeToCostRatio < config.minTradableRangeToCostRatio) {
-    return deny(`ATR-to-cost ratio ${rangeToCostRatio.toFixed(2)} is below ${config.minTradableRangeToCostRatio.toFixed(2)}.`);
-  }
+  const executionDiagnostics = {
+    roundTripCostPct,
+    atrToCostRatio: rangeToCostRatio,
+    targetToCostRatio: decision.diagnostics?.targetToCostRatio ?? 0,
+  };
 
   const usdtBalance = balances.find((balance) => balance.coin === "USDT");
   const freeUsdt = usdtBalance?.free ?? 0;
@@ -103,14 +110,15 @@ export function createExecutionPlan(
     : targetDeltaSpend;
   const approvedSpend = Math.min(requestedSpend, targetDeltaSpend, spendableAfterReserve, allocationCapacity);
   if (approvedSpend < config.minTradeUsdt) {
-    return deny("USDT reserve or per-asset allocation limit leaves no valid buy budget.");
+    return deny("USDT reserve or per-asset allocation limit leaves no valid buy budget.", executionDiagnostics);
   }
   return {
     allowed: true,
     reason: context.strategyIntent
-      ? `${context.strategyIntent.reason} Platform safety gates passed.`
-      : "Buy passed platform safety gates; execution follows the model version's target allocation delta.",
+      ? `${context.strategyIntent.reason} Platform safety gates passed; ATR/cost ${rangeToCostRatio.toFixed(2)} is diagnostic only because the model owns trade economics.`
+      : `Buy passed platform safety gates; ATR/cost ${rangeToCostRatio.toFixed(2)} is diagnostic only.`,
     buyPctOfUsdt: approvedSpend / freeUsdt,
     sellPctOfHolding: 0,
+    diagnostics: executionDiagnostics,
   };
 }

@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # JEV TRADER BYBIT — Agent Project Context
 
-Updated: 2026-09-23 Europe/Istanbul  
+Updated: 2026-09-24 Europe/Istanbul  
 Repository: `nevzataksoy/jev-trader-bybit`  
 Default branch: `main`
 
@@ -63,7 +63,7 @@ The active production experiment is now:
 - `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2`
 - experiment started at `2026-09-22 22:45:35Z`
 
-Do not silently reuse that experiment id for a different engine pair or after a strategy/platform behavior change. Start a new experiment id whenever semantics or shared execution-risk behavior changes.
+Do not reuse that experiment id with a different engine pair. During this 42-day optimization window, keep the same experiment and paper portfolios while in-place behavior revisions are separated by deduplicated `policyRevision/configRevision/sourceRevision` metadata. Do not reset the experiment clock merely to iterate policy.
 
 ### Model2 V2 purpose
 
@@ -203,14 +203,51 @@ Known diagnostics issues discovered in the same review:
 2. Model2 V2 can preserve both `PENDING_CLOSE` and `PENDING_RETEST` in `blockedBy` when an active signal's original readiness differs from the current cycle's readiness. This is mainly an observability inconsistency.
 3. `engine_orders` only contains simulated orders that pass platform safety. Rejected BUY attempts remain in `engine_runs.executions`, so order-history UI alone can make a valid model signal look as if it never existed.
 
-Recommended next engineering sequence:
+The 48-cycle review motivated the 2026-09-24 in-place structural revision documented below. Preserve the original 48-cycle findings as the pre-revision baseline and use revision metadata for before/after comparisons without resetting the 42-day experiment.
 
-1. Preserve the current experiment as evidence; do not mutate Model2 V2 behavior in-place under the same experiment id.
-2. Add/repair diagnostics first so blockers and skipped execution attempts are visible and trustworthy.
-3. Measure longer counterfactual outcomes for model BUYs/pending signals and the ATR/cost gate.
-4. If platform range-to-cost logic is redesigned, start a new experiment id even if engine ids stay the same.
-5. If Model2 strategy semantics change again, create `model2-v3` rather than rewriting the historical V2 baseline.
-6. Keep Model1 V1 unchanged unless a larger sample demonstrates a repeatable false-negative calibration problem.
+## In-place structural revision — 2026-09-24
+
+The user explicitly chose continuous optimization inside the current 42-day experiment rather than incrementing model versions and resetting the observation clock after every iteration.
+
+Current revision contract:
+
+- engine ids remain `model1-v1` and `model2-v2`
+- experiment remains `model1-v1-vs-model2-v2`; do not reset `started_at`, `planned_end_at` or paper portfolios for normal policy iterations
+- current policy revision: `r2-structure-economics-20260924`
+- `engine_policy_revisions` stores one deduplicated config/source revision record; `engine_runs.revision_id` references it
+- performance must be analyzable both across the full 42-day experiment and by revision epoch
+
+Trade economics changed from an arbitrary global ATR/cost hard gate to structural opportunity economics:
+
+- derive compact multi-timeframe support/resistance zones from 15m/1h/4h swing structure plus 24h/3d/7d channels, EMA, VWAP and Bollinger references
+- retain 15m/1h/4h ATR and an asset-relative ATR percentile as volatility context
+- measure the largest bid/ask wall, distance/share and cross-cycle persistence from the existing order-book snapshot
+- use trade flow, OI/funding and macro as confirming/modifying evidence
+- XAUT macro bias may use real-yield and breakeven-inflation changes; BTC/ETH may use policy/yield regime
+- model economics uses structural target distance and support/invalidation distance, then subtracts fee + spread + estimated slippage
+- `ATR-to-cost` remains a diagnostic field but no longer blocks BUY inside shared `lib/risk.ts`
+- shared platform risk remains limited to model-independent hard safety: freshness, spread ceiling, confidence floor, drawdown breaker, order count, extreme realized volatility, reserve, minimum size and allocation capacity
+
+Entry/exit structural semantics:
+
+- support + price-action/microstructure confirmation may justify entry/watch
+- resistance rejection while held and net profitable may justify reduce/sell
+- accepted resistance breakout may remain held and use the next structural target rather than forcing a sale
+- support invalidation may force risk reduction regardless of fee economics
+- Model2 keeps native rotation `enter/increase/watch/hold/reduce/exit`; `hold` still normalizes to `none`, while `watch` may enter pending confirmation
+
+Observability fixes:
+
+- flat/reduce/no-intent paths should report `NO_ALLOCATION_INTENT` / structural causes rather than false `ALLOCATION_DEADBAND`
+- an active pending signal must expose only its actual `PENDING_CLOSE` or `PENDING_RETEST` state
+- `/models` exposes BUY/SELL execution attempts, including platform skips, plus revision metadata and structural diagnostics
+- platform-rejected BUY/SELL attempts are stored sparsely in `engine_counterfactuals`; holds are not duplicated there
+- existing 15-minute end-of-cycle `cleanupDatabase()` fills +15m/+1h/+4h/+12h counterfactual prices and applies retention; never add a second cleanup cron for this feature
+- raw candles/orderbook payloads are not duplicated into new history tables; compact derived features remain in the existing shared market snapshot
+
+Liquidation constraint:
+
+- do not fabricate liquidation-map data. Bybit's broad public liquidation feed is a WebSocket stream; the current 15-minute serverless cron does not provide a reliable continuous collector. Use existing OI/funding/trade-flow/orderbook evidence until a durable liquidation-event collector is intentionally designed.
 
 ## Known non-blocking follow-ups
 

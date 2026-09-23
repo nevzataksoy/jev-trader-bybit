@@ -40,6 +40,10 @@ const fatalBlockers = new Set<DecisionBlocker>([
   "LIQUIDITY_LOW",
   "DISORDERLY_MARKET",
   "RISK_BUDGET_ZERO",
+  "NO_ALLOCATION_INTENT",
+  "THESIS_INVALID",
+  "TARGET_ROOM_LOW",
+  "MICROSTRUCTURE_WEAK",
 ]);
 
 function parseJson<T>(value: unknown): T {
@@ -70,10 +74,10 @@ function mapPendingSignal(row: Record<string, unknown>): PendingSignal {
 }
 
 function triggerPrice(setup: TradingSetup, market: MarketIndicatorState) {
-  if (setup === "upside_breakout") return market.channel_24h_high;
-  if (setup === "range_reversion") return market.channel_24h_low;
-  if (setup === "bear_rebound") return market.ema_9;
-  return market.ema_21;
+  if (setup === "upside_breakout") return market.resistance_zone_high ?? market.channel_24h_high;
+  if (setup === "range_reversion") return market.support_zone_high ?? market.channel_24h_low;
+  if (setup === "bear_rebound") return Math.max(market.support_zone_high ?? market.channel_24h_low, market.ema_9);
+  return market.support_zone_high ?? market.ema_21;
 }
 
 function hasFatalBlocker(decision: JevDecision) {

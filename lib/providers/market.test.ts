@@ -90,6 +90,13 @@ describe("market indicators", () => {
     expect(state.channel_7d_high).toBeGreaterThan(state.channel_7d_low);
     expect(state.bb_width_percentile_7d).toBeGreaterThanOrEqual(0);
     expect(state.bb_width_percentile_7d).toBeLessThanOrEqual(1);
+    expect(state.atr_14_1h_pct).toBeGreaterThan(0);
+    expect(state.atr_14_4h_pct).toBeGreaterThan(0);
+    expect(state.atr_15m_percentile).toBeGreaterThanOrEqual(0);
+    expect(state.atr_15m_percentile).toBeLessThanOrEqual(1);
+    expect(state.support_zone_low).toBeLessThanOrEqual(state.support_zone_high);
+    expect(state.resistance_zone_low).toBeLessThanOrEqual(state.resistance_zone_high);
+    expect(state.secondary_resistance_price).toBeGreaterThanOrEqual(state.resistance_zone_low);
     expect(["higher", "lower", "mixed"]).toContain(state.structure_12h);
   });
 

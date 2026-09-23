@@ -140,6 +140,18 @@ async function createSchema() {
     )
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS engine_policy_revisions (
+      revision_id TEXT PRIMARY KEY,
+      engine_id TEXT NOT NULL,
+      engine_version TEXT NOT NULL,
+      policy_revision TEXT NOT NULL,
+      config_revision TEXT NOT NULL,
+      source_revision TEXT NOT NULL,
+      config_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS engine_runs (
       id BIGSERIAL PRIMARY KEY,
       experiment_id TEXT NOT NULL REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
@@ -147,6 +159,7 @@ async function createSchema() {
       snapshot_id BIGINT NOT NULL REFERENCES shared_market_snapshots(id) ON DELETE CASCADE,
       engine_id TEXT NOT NULL,
       engine_version TEXT NOT NULL,
+      revision_id TEXT REFERENCES engine_policy_revisions(revision_id),
       status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
       started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       completed_at TIMESTAMPTZ,
@@ -217,6 +230,34 @@ async function createSchema() {
     )
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS engine_counterfactuals (
+      id BIGSERIAL PRIMARY KEY,
+      experiment_id TEXT NOT NULL REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
+      cycle_key TEXT NOT NULL,
+      engine_id TEXT NOT NULL,
+      engine_version TEXT NOT NULL,
+      revision_id TEXT REFERENCES engine_policy_revisions(revision_id),
+      asset TEXT NOT NULL CHECK (asset IN ('BTC', 'ETH', 'XAUT')),
+      action TEXT NOT NULL CHECK (action IN ('buy', 'sell')),
+      setup TEXT NOT NULL,
+      readiness TEXT NOT NULL,
+      confidence NUMERIC(12, 8) NOT NULL,
+      reference_price NUMERIC(40, 18) NOT NULL,
+      expected_net_edge_pct NUMERIC(14, 8),
+      target_price NUMERIC(40, 18),
+      invalidation_price NUMERIC(40, 18),
+      diagnostics JSONB NOT NULL DEFAULT '{}'::jsonb,
+      rejection_reason TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      forward_15m_price NUMERIC(40, 18),
+      forward_1h_price NUMERIC(40, 18),
+      forward_4h_price NUMERIC(40, 18),
+      forward_12h_price NUMERIC(40, 18),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (experiment_id, cycle_key, engine_id, asset, action)
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS engine_pending_signals (
       id BIGSERIAL PRIMARY KEY,
       scope_id TEXT NOT NULL,
@@ -240,6 +281,7 @@ async function createSchema() {
       resolution_reason TEXT
     )
   `;
+  await sql`ALTER TABLE engine_runs ADD COLUMN IF NOT EXISTS revision_id TEXT REFERENCES engine_policy_revisions(revision_id)`;
   await sql`CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC)`;
@@ -249,6 +291,10 @@ async function createSchema() {
   await sql`CREATE INDEX IF NOT EXISTS engine_runs_experiment_idx ON engine_runs(experiment_id, started_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS engine_equity_experiment_idx ON engine_equity_snapshots(experiment_id, engine_id, captured_at)`;
   await sql`CREATE INDEX IF NOT EXISTS engine_orders_experiment_idx ON engine_orders(experiment_id, engine_id, created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS engine_runs_revision_idx ON engine_runs(revision_id, started_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS engine_policy_revisions_engine_idx ON engine_policy_revisions(engine_id, created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS engine_counterfactuals_pending_idx ON engine_counterfactuals(created_at DESC) WHERE forward_12h_price IS NULL`;
+  await sql`CREATE INDEX IF NOT EXISTS engine_counterfactuals_experiment_idx ON engine_counterfactuals(experiment_id, engine_id, created_at DESC)`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS engine_pending_signals_active_idx ON engine_pending_signals(scope_id, engine_id, asset) WHERE status = 'active'`;
   await sql`CREATE INDEX IF NOT EXISTS engine_pending_signals_history_idx ON engine_pending_signals(scope_id, engine_id, created_at DESC)`;
 }
@@ -437,6 +483,9 @@ export interface DatabaseCleanupResult {
   orphanedMarketSnapshots: number;
   expiredPendingSignals: number;
   deletedPendingSignals: number;
+  updatedCounterfactualHorizons: number;
+  deletedCounterfactuals: number;
+  deletedRevisionMetadata: number;
 }
 
 export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
@@ -452,6 +501,9 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       orphanedMarketSnapshots: 0,
       expiredPendingSignals: 0,
       deletedPendingSignals: 0,
+      updatedCounterfactualHorizons: 0,
+      deletedCounterfactuals: 0,
+      deletedRevisionMetadata: 0,
     };
   }
   await ensureDatabase();
@@ -541,6 +593,98 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
         AND COALESCE(resolved_at, created_at) < NOW() - (LEAST(${retention.experimentRetentionDays}, 30) * INTERVAL '1 day')
       RETURNING id
     `;
+    const counterfactual15m = await transaction`
+      WITH matched AS (
+        SELECT candidate.id, (
+          SELECT (snapshot.prices->>candidate.asset)::numeric
+          FROM shared_market_snapshots snapshot
+          WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '12 minutes'
+            AND snapshot.captured_at <= candidate.created_at + INTERVAL '35 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '15 minutes'))))
+          LIMIT 1
+        ) AS price
+        FROM engine_counterfactuals candidate
+        WHERE candidate.forward_15m_price IS NULL
+          AND candidate.created_at <= NOW() - INTERVAL '15 minutes'
+      )
+      UPDATE engine_counterfactuals candidate
+      SET forward_15m_price = matched.price, updated_at = NOW()
+      FROM matched
+      WHERE candidate.id = matched.id AND matched.price IS NOT NULL
+      RETURNING candidate.id
+    `;
+    const counterfactual1h = await transaction`
+      WITH matched AS (
+        SELECT candidate.id, (
+          SELECT (snapshot.prices->>candidate.asset)::numeric
+          FROM shared_market_snapshots snapshot
+          WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '50 minutes'
+            AND snapshot.captured_at <= candidate.created_at + INTERVAL '80 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '1 hour'))))
+          LIMIT 1
+        ) AS price
+        FROM engine_counterfactuals candidate
+        WHERE candidate.forward_1h_price IS NULL
+          AND candidate.created_at <= NOW() - INTERVAL '1 hour'
+      )
+      UPDATE engine_counterfactuals candidate
+      SET forward_1h_price = matched.price, updated_at = NOW()
+      FROM matched
+      WHERE candidate.id = matched.id AND matched.price IS NOT NULL
+      RETURNING candidate.id
+    `;
+    const counterfactual4h = await transaction`
+      WITH matched AS (
+        SELECT candidate.id, (
+          SELECT (snapshot.prices->>candidate.asset)::numeric
+          FROM shared_market_snapshots snapshot
+          WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '3 hours 45 minutes'
+            AND snapshot.captured_at <= candidate.created_at + INTERVAL '4 hours 20 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '4 hours'))))
+          LIMIT 1
+        ) AS price
+        FROM engine_counterfactuals candidate
+        WHERE candidate.forward_4h_price IS NULL
+          AND candidate.created_at <= NOW() - INTERVAL '4 hours'
+      )
+      UPDATE engine_counterfactuals candidate
+      SET forward_4h_price = matched.price, updated_at = NOW()
+      FROM matched
+      WHERE candidate.id = matched.id AND matched.price IS NOT NULL
+      RETURNING candidate.id
+    `;
+    const counterfactual12h = await transaction`
+      WITH matched AS (
+        SELECT candidate.id, (
+          SELECT (snapshot.prices->>candidate.asset)::numeric
+          FROM shared_market_snapshots snapshot
+          WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '11 hours 40 minutes'
+            AND snapshot.captured_at <= candidate.created_at + INTERVAL '12 hours 30 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '12 hours'))))
+          LIMIT 1
+        ) AS price
+        FROM engine_counterfactuals candidate
+        WHERE candidate.forward_12h_price IS NULL
+          AND candidate.created_at <= NOW() - INTERVAL '12 hours'
+      )
+      UPDATE engine_counterfactuals candidate
+      SET forward_12h_price = matched.price, updated_at = NOW()
+      FROM matched
+      WHERE candidate.id = matched.id AND matched.price IS NOT NULL
+      RETURNING candidate.id
+    `;
+    const deletedCounterfactuals = await transaction`
+      DELETE FROM engine_counterfactuals
+      WHERE created_at < NOW() - (${retention.experimentRetentionDays} * INTERVAL '1 day')
+      RETURNING id
+    `;
+    const deletedRevisionMetadata = await transaction`
+      DELETE FROM engine_policy_revisions revision
+      WHERE revision.created_at < NOW() - (${retention.experimentRetentionDays} * INTERVAL '1 day')
+        AND NOT EXISTS (SELECT 1 FROM engine_runs run WHERE run.revision_id = revision.revision_id)
+        AND NOT EXISTS (SELECT 1 FROM engine_counterfactuals cf WHERE cf.revision_id = revision.revision_id)
+      RETURNING revision_id
+    `;
     return {
       archivedDailySnapshots,
       expiredRuns: expiredRuns.length,
@@ -552,6 +696,9 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       orphanedMarketSnapshots: orphanedMarketSnapshots.length,
       expiredPendingSignals: expiredPendingSignals.length,
       deletedPendingSignals: deletedPendingSignals.length,
+      updatedCounterfactualHorizons: counterfactual15m.length + counterfactual1h.length + counterfactual4h.length + counterfactual12h.length,
+      deletedCounterfactuals: deletedCounterfactuals.length,
+      deletedRevisionMetadata: deletedRevisionMetadata.length,
     };
   });
 }

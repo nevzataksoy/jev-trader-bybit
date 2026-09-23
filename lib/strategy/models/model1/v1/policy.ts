@@ -7,6 +7,7 @@ import type {
   JevChoiceJudgment,
   JevDecision,
   JevPortfolioJudgments,
+  MacroState,
   MarketIndicatorState,
   PositionContext,
   TradeAction,
@@ -14,6 +15,7 @@ import type {
   TradingSetup,
 } from "../../../../types";
 import { TRADE_ASSETS } from "../../../../types";
+import { buildStructuralGeometry, normalizedWallSupport } from "../../../platform/market-geometry";
 
 type TradingConfig = ModelConfig;
 
@@ -23,19 +25,17 @@ interface StatefulOpportunity {
   readinessScore: number;
   confidence: number;
   expectedNetEdgePct: number;
+  grossExpectedEdgePct: number;
   opportunityScore: number;
   candidate: boolean;
   readyNow: boolean;
   reduce: boolean;
   blockers: DecisionBlocker[];
+  diagnostics: NonNullable<JevDecision["diagnostics"]>;
 }
 
 function clamp(value: number, minimum = 0, maximum = 1) {
   return Math.min(maximum, Math.max(minimum, value));
-}
-
-function finite(value: number | undefined, fallback = 0) {
-  return Number.isFinite(value) ? value! : fallback;
 }
 
 function choiceJudgment<T extends string>(choice: T, choices: readonly T[], confidence: number): JevChoiceJudgment<T> {
@@ -62,54 +62,90 @@ export function unifiedRiskFraction(choice: JevPortfolioJudgments["gross_risk_bu
   return { zero: 0, low: 0.25, medium: 0.5, high: 0.8 }[choice];
 }
 
+function macroBias(asset: TradeAsset, macro: MacroState | null) {
+  if (!macro || macro.data_quality === "unavailable") return 0;
+  if (asset === "XAUT") {
+    const realYield = macro.series.DFII10?.change_5d_bps ?? 0;
+    const inflation = macro.series.T10YIE?.change_5d_bps ?? 0;
+    return clamp(
+      (macro.gold_real_yield_regime === "supportive" ? 0.45 : macro.gold_real_yield_regime === "restrictive" ? -0.45 : 0)
+      + clamp(-realYield / 20, -0.35, 0.35)
+      + clamp(inflation / 20, -0.2, 0.2),
+      -1,
+      1,
+    );
+  }
+  const policy = macro.policy_regime === "easing_shock" ? 0.5
+    : macro.policy_regime === "easing" ? 0.25
+      : macro.policy_regime === "tightening_shock" ? -0.5
+        : macro.policy_regime === "tightening" ? -0.25
+          : 0;
+  const realYield = macro.series.DFII10?.change_5d_bps ?? 0;
+  return clamp(policy + clamp(-realYield / 30, -0.25, 0.25), -1, 1);
+}
+
+function leverageBias(market: MarketIndicatorState) {
+  if (market.open_interest_change_1h_pct === null && market.funding_rate_latest_pct === null) return 0;
+  const oi = market.open_interest_change_1h_pct ?? 0;
+  const flowDirection = market.return_1h_pct >= 0 ? 1 : -1;
+  const alignedOi = clamp((oi * flowDirection) / 4, -0.5, 0.5);
+  const fundingPenalty = market.funding_rate_latest_pct === null
+    ? 0
+    : clamp(-Math.abs(market.funding_rate_latest_pct) / 0.05, -0.25, 0);
+  return clamp(alignedOi + fundingPenalty, -1, 1);
+}
+
+function microstructureBias(market: MarketIndicatorState) {
+  return clamp(
+    normalizedWallSupport(market) * 0.55
+      + (market.trade_flow_imbalance ?? 0) * 0.3
+      + clamp((market.depth_ratio - 1) / 2, -0.15, 0.15),
+    -1,
+    1,
+  );
+}
+
 function setupIsViable(
   setup: TradingSetup,
   market: MarketIndicatorState,
   judgments: JevAssetJudgments,
+  nearSupport: boolean,
+  breakoutAccepted: boolean,
   config: TradingConfig,
 ) {
-  const channelPosition = finite(market.channel_24h_position, 0.5);
   if (setup === "trend_pullback") {
     return (market.regime === "bull_trend" || judgments.regime.choice === "uptrend")
       && market.last_price > market.ema_200
-      && channelPosition >= 0.1
-      && channelPosition <= 0.9
-      && market.price_zscore_20 <= 1;
+      && (nearSupport || supportStrength >= 0.45)
+      && market.price_zscore_20 <= 1.1;
   }
   if (setup === "upside_breakout") {
-    return channelPosition >= 0.82
-      && market.volume_ratio_20 >= 0.75
+    return (breakoutAccepted || market.channel_24h_position >= 0.86)
+      && market.volume_ratio_20 >= 0.8
       && judgments.false_breakout < 0.65;
   }
   if (setup === "range_reversion") {
-    return (market.regime === "range" || judgments.regime.choice === "range")
-      && channelPosition <= 0.5
-      && market.price_zscore_20 <= -0.2
+    return (market.regime === "range" || market.regime === "compression" || judgments.regime.choice === "range")
+      && nearSupport
       && judgments.reversal_confirmation >= 0.45;
   }
   if (setup === "bear_rebound") {
     return (market.regime === "bear_trend" || judgments.regime.choice === "downtrend")
+      && nearSupport
       && market.countertrend_rebound_score >= Math.max(0, config.minBearReboundScore - 0.08)
       && judgments.reversal_confirmation >= 0.5;
   }
   return false;
 }
 
-function rewardAndRiskPct(setup: TradingSetup, market: MarketIndicatorState) {
-  const atr = Math.max(finite(market.atr_14_pct, 0.1), 0.1);
-  const upsideToPriorHigh = Math.max(0, finite(market.distance_to_24h_high_atr) * atr);
-  if (setup === "upside_breakout") return { reward: atr * 2.2, risk: atr * 1.15 };
-  if (setup === "range_reversion") return { reward: Math.max(atr, upsideToPriorHigh * 0.55), risk: atr };
-  if (setup === "bear_rebound") return { reward: atr * 1.6, risk: atr * 1.1 };
-  return { reward: Math.max(atr * 1.4, Math.min(upsideToPriorHigh, atr * 3)), risk: atr * 1.05 };
-}
-
 function evaluateOpportunity(
+  asset: TradeAsset,
   judgments: JevAssetJudgments,
   market: MarketIndicatorState,
   position: PositionContext,
   feePct: number,
   config: TradingConfig,
+  macro: MacroState | null,
 ): StatefulOpportunity {
   const setup = judgments.best_setup.choice;
   const readiness = judgments.entry_readiness.choice;
@@ -121,22 +157,66 @@ function evaluateOpportunity(
       + judgments.entry_readiness.confidence
       + judgments.setup_quality.confidence
   ) / 4);
+  const geometry = buildStructuralGeometry(market, feePct, config.estimatedSlippagePct);
+  const supportLow = market.support_zone_low ?? market.channel_24h_low;
+  const supportHigh = market.support_zone_high ?? market.channel_24h_low;
+  const supportStrength = market.support_strength ?? 0.25;
+  const resistanceLow = market.resistance_zone_low ?? market.channel_24h_high;
+  const resistanceHigh = market.resistance_zone_high ?? market.channel_24h_high;
+  const resistanceStrength = market.resistance_strength ?? 0.25;
+  const macroScore = macroBias(asset, macro);
+  const microScore = microstructureBias(market);
+  const leverageScore = leverageBias(market);
+  const supportInvalidated = market.last_price < supportLow;
+  const resistanceRejection = position.status === "held"
+    && geometry.nearResistance
+    && !geometry.breakoutAccepted
+    && (market.upper_wick_atr >= 0.5 || microScore <= -0.12 || market.macd_hist < 0)
+    && (position.unrealized_pnl_pct ?? 0) > geometry.roundTripCostPct;
   const reduce = judgments.cut_position >= config.cutPositionProbability
     || judgments.disorderly >= config.disorderlyProbability
     || setup === "reduce"
+    || supportInvalidated
+    || resistanceRejection
     || (position.status === "held" && directionEdge <= -config.minDirectionalEdge);
+
+  const diagnosticsBase = {
+    roundTripCostPct: geometry.roundTripCostPct,
+    atrToCostRatio: geometry.atrToCostRatio,
+    targetPrice: geometry.targetPrice,
+    invalidationPrice: geometry.invalidationPrice,
+    targetDistancePct: geometry.targetDistancePct,
+    invalidationDistancePct: geometry.invalidationDistancePct,
+    targetToCostRatio: geometry.targetToCostRatio,
+    supportZoneLow: supportLow,
+    supportZoneHigh: supportHigh,
+    supportStrength,
+    resistanceZoneLow: resistanceLow,
+    resistanceZoneHigh: resistanceHigh,
+    resistanceStrength,
+    macroBias: macroScore,
+    microstructureBias: microScore,
+    leverageBias: leverageScore,
+  };
+
   if (reduce) {
+    const blockers: DecisionBlocker[] = [];
+    if (position.status === "flat") blockers.push("NO_ALLOCATION_INTENT");
+    if (judgments.disorderly >= config.disorderlyProbability) blockers.push("DISORDERLY_MARKET");
+    if (supportInvalidated || judgments.cut_position >= config.cutPositionProbability) blockers.push("STRUCTURE_REJECTED");
     return {
       setup,
       readiness,
       readinessScore,
       confidence: Math.max(confidence, judgments.cut_position, judgments.disorderly),
       expectedNetEdgePct: 0,
+      grossExpectedEdgePct: 0,
       opportunityScore: 0,
       candidate: false,
       readyNow: false,
       reduce: true,
-      blockers: [],
+      blockers,
+      diagnostics: { ...diagnosticsBase, successProbability: 0, grossExpectedEdgePct: 0 },
     };
   }
 
@@ -145,27 +225,34 @@ function evaluateOpportunity(
     ? judgments.reversal_confirmation
     : judgments.follow_through.probabilities.continuation;
   const successProbability = clamp(
-    judgments.direction.probabilities.up * 0.48
-      + setupQuality * 0.2
-      + patternProbability * 0.14
-      + judgments.liquidity_ok * 0.1
+    judgments.direction.probabilities.up * 0.42
+      + setupQuality * 0.18
+      + patternProbability * 0.12
+      + judgments.liquidity_ok * 0.08
       + readinessScore * 0.08
-      - (setup === "upside_breakout" ? judgments.false_breakout * 0.12 : 0),
+      + supportStrength * 0.05
+      + microScore * 0.035
+      + leverageScore * 0.025
+      + macroScore * 0.02
+      - (setup === "upside_breakout" ? judgments.false_breakout * 0.1 : 0),
     0.05,
     0.92,
   );
-  const { reward, risk } = rewardAndRiskPct(setup, market);
-  const roundTripCost = feePct * 2 + market.bid_ask_spread_pct + config.estimatedSlippagePct * 2;
-  const expectedNetEdgePct = successProbability * reward - (1 - successProbability) * risk - roundTripCost;
-  const viableStructure = setupIsViable(setup, market, judgments, config);
+  const reward = geometry.targetDistancePct;
+  const risk = geometry.invalidationDistancePct;
+  const grossExpectedEdgePct = successProbability * reward - (1 - successProbability) * risk;
+  const expectedNetEdgePct = grossExpectedEdgePct - geometry.roundTripCostPct;
+  const viableStructure = setupIsViable(setup, market, judgments, geometry.nearSupport, geometry.breakoutAccepted, config);
   const blockers: DecisionBlocker[] = [];
   if (readiness === "no_entry") blockers.push("JEV_NO_ENTRY");
   if (setup === "none" || !viableStructure) blockers.push("STRUCTURE_REJECTED");
   if (directionEdge < config.minDirectionalEdge) blockers.push("DIRECTIONAL_EDGE_LOW");
   if (judgments.setup_quality.score < config.minSetupScore) blockers.push("SETUP_QUALITY_LOW");
+  if (geometry.targetDistancePct <= geometry.roundTripCostPct + config.minExpectedNetEdgePct) blockers.push("TARGET_ROOM_LOW");
   if (expectedNetEdgePct < config.minExpectedNetEdgePct) blockers.push("NET_EDGE_LOW");
   if (judgments.liquidity_ok < config.minLiquidityProbability) blockers.push("LIQUIDITY_LOW");
   if (judgments.disorderly >= config.disorderlyProbability) blockers.push("DISORDERLY_MARKET");
+  if (microScore <= -0.65 && !geometry.breakoutAccepted) blockers.push("MICROSTRUCTURE_WEAK");
   const fatalBlockers = blockers.length > 0;
   const pendingBlocker = readiness === "wait_close"
     ? "PENDING_CLOSE"
@@ -175,7 +262,7 @@ function evaluateOpportunity(
   const readyNow = candidate && pendingBlocker === null && readinessScore >= 0.2;
   const opportunityScore = candidate
     ? Math.max(0.0001, successProbability * setupQuality * judgments.liquidity_ok
-      * (0.5 + readinessScore) * (1 + expectedNetEdgePct / Math.max(risk, 0.1)))
+      * (0.5 + readinessScore) * (1 + Math.max(expectedNetEdgePct, 0) / Math.max(risk, 0.1)))
     : 0;
   return {
     setup,
@@ -183,11 +270,13 @@ function evaluateOpportunity(
     readinessScore,
     confidence,
     expectedNetEdgePct,
+    grossExpectedEdgePct,
     opportunityScore,
     candidate,
     readyNow,
     reduce: false,
     blockers,
+    diagnostics: { ...diagnosticsBase, successProbability, grossExpectedEdgePct },
   };
 }
 
@@ -268,10 +357,11 @@ export function buildDecisions(
   positions: Record<TradeAsset, PositionContext>,
   feePctByAsset: Record<TradeAsset, number>,
   config: TradingConfig,
+  macro: MacroState | null = null,
 ): JevDecision[] {
   const availableCashPct = Math.max(0, 100 - TRADE_ASSETS.reduce((sum, asset) => sum + positions[asset].allocation_pct, 0));
   const opportunities = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, evaluateOpportunity(
-    judgments[asset], indicators[asset], positions[asset], feePctByAsset[asset], config,
+    asset, judgments[asset], indicators[asset], positions[asset], feePctByAsset[asset], config, macro,
   )])) as Record<TradeAsset, StatefulOpportunity>;
   const maximumInvestedPct = (1 - config.minUsdtReservePct) * 100;
   const preferred = portfolioJudgments.preferred_destination.choice;
@@ -317,7 +407,9 @@ export function buildDecisions(
       : opportunity.readyNow && delta >= config.allocationDeadbandPct && grossRiskBudgetPct > 0
         ? "buy"
         : "hold";
-    if (action === "hold" && blockers.length === 0) blockers.push("ALLOCATION_DEADBAND");
+    if (action === "hold" && blockers.length === 0) {
+      blockers.push(opportunity.reduce || !opportunity.candidate ? "NO_ALLOCATION_INTENT" : "ALLOCATION_DEADBAND");
+    }
     const uniqueBlockers = [...new Set(blockers)];
     const state = uniqueBlockers.includes("PENDING_CLOSE") || uniqueBlockers.includes("PENDING_RETEST")
       ? "pending"
@@ -340,9 +432,13 @@ export function buildDecisions(
       readinessScore: opportunity.readinessScore,
       signalState: state,
       blockedBy: uniqueBlockers,
-      policyReason: `Model1 V1; readiness probability score ${opportunity.readinessScore.toFixed(3)}; `
-        + `unified ${portfolioJudgments.gross_risk_budget.choice} risk budget ${grossRiskBudgetPct.toFixed(2)}%; `
-        + `target ${target.toFixed(2)}% versus current ${current.toFixed(2)}%; `
+      diagnostics: opportunity.diagnostics,
+      policyReason: `Model1 V1 structural policy; target room ${opportunity.diagnostics.targetDistancePct.toFixed(3)}%, `
+        + `invalidation risk ${opportunity.diagnostics.invalidationDistancePct.toFixed(3)}%, `
+        + `cost ${opportunity.diagnostics.roundTripCostPct.toFixed(3)}%, net edge ${opportunity.expectedNetEdgePct.toFixed(3)}%; `
+        + `support ${opportunity.diagnostics.supportStrength.toFixed(2)}, resistance ${opportunity.diagnostics.resistanceStrength.toFixed(2)}, `
+        + `micro ${opportunity.diagnostics.microstructureBias.toFixed(2)}, macro ${opportunity.diagnostics.macroBias.toFixed(2)}; `
+        + `risk budget ${grossRiskBudgetPct.toFixed(2)}%, target allocation ${target.toFixed(2)}%; `
         + (uniqueBlockers.length ? `blocked by ${uniqueBlockers.join(", ")}.` : "eligible for deterministic execution."),
       judgments: judgments[asset],
     };

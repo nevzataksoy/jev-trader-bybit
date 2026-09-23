@@ -19,9 +19,6 @@ export interface StrategyRuntimeContext {
 export interface StrategyEngineResult extends JevResponse {
   engineId: StrategyEngineId;
   engineVersion: string;
-  policyRevision: string;
-  configRevision: string;
-  sourceRevision: string;
   latencyMs: number;
 }
 

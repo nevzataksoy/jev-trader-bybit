@@ -104,7 +104,22 @@ export async function runPaperEngineCycle(
     for (const decision of engine.orderDecisions(result.decisions)) {
       const symbol = SYMBOLS[decision.asset];
       if (decision.action === "buy" && buyCount >= trading.maxBuysPerCycle) {
-        executions.push({ asset: decision.asset, symbol, action: decision.action, status: "skipped", reason: "A higher-ranked paper buy consumed this cycle's exposure budget." });
+        executions.push({
+          asset: decision.asset,
+          symbol,
+          action: decision.action,
+          status: "skipped",
+          reason: "A higher-ranked paper buy consumed this cycle's exposure budget.",
+          riskMetrics: {
+            roundTripCostPct: decision.roundTripCostPct,
+            atrPct: shared.indicators[decision.asset].atr_14_pct,
+            atrToCostRatio: decision.roundTripCostPct
+              ? shared.indicators[decision.asset].atr_14_pct / decision.roundTripCostPct
+              : undefined,
+            targetDistancePct: decision.targetDistancePct,
+            expectedNetEdgePct: decision.expectedNetEdgePct,
+          },
+        });
         continue;
       }
       const strategyIntent = engine.planExecution(decision, {
@@ -155,7 +170,18 @@ export async function runPaperEngineCycle(
         capturedAt: shared.capturedAt,
         estimatedSlippagePct: trading.estimatedSlippagePct,
       });
-      executions.push(execution);
+      executions.push({
+        ...execution,
+        riskMetrics: {
+          roundTripCostPct: decision.roundTripCostPct,
+          atrPct: shared.indicators[decision.asset].atr_14_pct,
+          atrToCostRatio: decision.roundTripCostPct
+            ? shared.indicators[decision.asset].atr_14_pct / decision.roundTripCostPct
+            : undefined,
+          targetDistancePct: decision.targetDistancePct,
+          expectedNetEdgePct: decision.expectedNetEdgePct,
+        },
+      });
       if (execution.status === "confirmed") {
         const cash = workingBalances.find((balance) => balance.coin === "USDT");
         const asset = workingBalances.find((balance) => balance.coin === decision.asset);

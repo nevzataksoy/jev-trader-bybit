@@ -14,11 +14,14 @@ import {
   beginEngineRun,
   completeEngineRun,
   failEngineRun,
+  registerEngineRevision,
+  saveCounterfactualAttempt,
   getPaperTradingState,
   savePaperEquitySnapshot,
   simulatePaperOrder,
 } from "./experiment";
 import { strategyEngines } from "./registry.generated";
+import { getEngineRevision } from "./revision";
 import type { StrategyEngine, StrategyEngineId, StrategyEngineResult } from "./types";
 
 export { strategyEngines } from "./registry.generated";
@@ -60,7 +63,20 @@ export async function runPaperEngineCycle(
   shared: SharedEngineCycleContext,
 ): Promise<PaperEngineCycleResult> {
   const engine = getStrategyEngine(engineId);
-  await beginEngineRun(shared.experimentId, shared.cycleKey, shared.snapshotId, engine.id, engine.version);
+  const revision = getEngineRevision(engine);
+  await registerEngineRevision({
+    ...revision,
+    engineId: engine.id,
+    engineVersion: engine.version,
+  });
+  await beginEngineRun(
+    shared.experimentId,
+    shared.cycleKey,
+    shared.snapshotId,
+    engine.id,
+    engine.version,
+    revision.revisionId,
+  );
   try {
     const paper = await getPaperTradingState(
       shared.experimentId,
@@ -121,7 +137,21 @@ export async function runPaperEngineCycle(
           action: decision.action,
           status: decision.action === "hold" ? "held" : "skipped",
           reason: plan.reason,
+          executionDiagnostics: plan.diagnostics,
         });
+        if (decision.action !== "hold" && strategyIntent.allowed) {
+          await saveCounterfactualAttempt({
+            experimentId: shared.experimentId,
+            cycleKey: shared.cycleKey,
+            engineId: engine.id,
+            engineVersion: engine.version,
+            revisionId: revision.revisionId,
+            decision,
+            market: shared.indicators[decision.asset],
+            rejectionReason: plan.reason,
+            capturedAt: shared.capturedAt,
+          });
+        }
         continue;
       }
       const execution = await simulatePaperOrder({

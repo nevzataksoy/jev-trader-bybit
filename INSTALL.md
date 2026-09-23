@@ -67,8 +67,8 @@ Uygulama runtime sırasında da tabloları `CREATE TABLE IF NOT EXISTS` ile doğ
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_ENGINE_IDS=model1-v1,model2-v1
-AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+AB_ENGINE_IDS=model1-v1,model2-v2
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
 AB_INITIAL_CAPITAL_USDT=1000
 AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
@@ -90,7 +90,6 @@ MAX_DAILY_VOLATILITY_PCT=10
 MAX_SPREAD_PCT=0.25
 ESTIMATED_SLIPPAGE_PCT=0.03
 MAX_MARKET_SLIPPAGE_PCT=0.20
-MIN_TRADABLE_RANGE_TO_COST_RATIO=2.50
 MAX_PORTFOLIO_DRAWDOWN_PCT=3
 MAX_COMPLETED_ORDERS_24H=8
 MAX_BUYS_PER_CYCLE=2
@@ -116,7 +115,7 @@ MODEL1_V1_WAIT_CLOSE_TTL_MINUTES=30
 MODEL1_V1_WAIT_RETEST_TTL_MINUTES=120
 ```
 
-### 9. Model2 V1 parametreleri
+### 9. Model2 V1 / V2 parametreleri
 
 ```env
 MODEL2_V1_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.15
@@ -137,6 +136,11 @@ MODEL2_V1_WAIT_RETEST_TTL_MINUTES=120
 ```
 
 Yeni bir model/version kendi prefix'li parametrelerini kendi `config.ts` dosyasında tanımlar.
+
+
+Aktif 42 günlük experiment sırasında aynı engine kimlikleri ve paper portföyler korunur. Onaylı davranış/config revizyonları `engine_revisions` tablosunda tekil audit kaydı olarak tutulur; `engine_runs.revision_id` ile cycle bazında izlenir. Revision değişikliği experiment başlangıç/bitiş saatini sıfırlamaz.
+
+Sabit `MIN_TRADABLE_RANGE_TO_COST_RATIO` artık kullanılmaz. Round-trip fee/spread/slippage maliyeti modelin support→resistance hedef ekonomisinde hesaplanır; platform yalnız operasyonel hard safety kontrollerini uygular.
 
 ### 10. Retention ve cron
 
@@ -174,11 +178,11 @@ Tarihsel local backtest/simulation komutları bu temiz projede bulunmaz.
 1. Neon entegrasyonunun bağlı olduğunu ve `DATABASE_URL` oluştuğunu doğrulayın.
 2. Vercel Production Environment Variables alanını güncel `.env.example` ile eşitleyin.
 3. Eski `model1-blind-*`, `model2-blind-*`, eski strategy parametreleri ve bütün `BACKTEST_*` değişkenlerini Vercel'den kaldırın.
-4. `AB_ENGINE_IDS=model1-v1,model2-v1` ve `AB_EXPERIMENT_ID=model1-v1-vs-model2-v1` kullanın.
+4. `AB_ENGINE_IDS=model1-v1,model2-v2` ve `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2` kullanın.
 5. İlk aşamada `TRADING_ENABLED=false`, `EXCHANGE_EXECUTION_ENGINE=none` bırakın.
 6. Deploy tamamlandıktan sonra `/api/health` çağırın.
 7. Yetkili bir `/api/cron` çağrısı yapın. DB tamamen boşsa bu çağrı runtime schema bootstrap'ını tetikleyebilir.
-8. `/api/state` yanıtının bağlı Bybit hesabı/platform durumunu, `/models` ve `/api/models/state` yanıtının ise A/B `engine_runs` / paper karar geçmişini temsil ettiğini doğrulayın. `/api/models/state` içindeki `activeEngines`, `availableEngines` ve deney motorları yalnız `model1-v1` ile `model2-v1` olmalıdır.
+8. `/api/state` yanıtının bağlı Bybit hesabı/platform durumunu, `/models` ve `/api/models/state` yanıtının ise A/B `engine_runs` / paper karar geçmişini temsil ettiğini doğrulayın. `/api/models/state` içindeki `activeEngines`, `availableEngines` ve deney motorları aktif çift olan `model1-v1` ile `model2-v2` değerlerini doğru göstermelidir.
 9. DB'de `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots`, `engine_orders` tablolarının oluştuğunu kontrol edin.
 10. cron-job.org Test Run yapın ve HTTP 200 doğrulayın.
 11. Birkaç çevrim boyunca Jev kararlarını, pending/confirmed akışını ve paper equity sonuçlarını gözlemleyin.
@@ -249,8 +253,8 @@ Runtime initialization also uses `CREATE TABLE IF NOT EXISTS`. Vercel build itse
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_ENGINE_IDS=model1-v1,model2-v1
-AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+AB_ENGINE_IDS=model1-v1,model2-v2
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
 AB_INITIAL_CAPITAL_USDT=1000
 AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
@@ -263,6 +267,11 @@ Real exchange routing is hard-disabled in A/B mode.
 Shared safety ceilings remain global. Strategy choices live under `MODEL1_V1_*` or `MODEL2_V1_*`. Future model versions should define their own prefixed configuration in their own version directory.
 
 Use `.env.example` as the canonical variable list.
+
+
+The active 42-day experiment keeps the same engine IDs and paper portfolios across approved in-place policy/config revisions. `engine_revisions` stores each revision once and `engine_runs.revision_id` identifies which revision produced each cycle. Revision changes do not reset the experiment clock.
+
+The fixed `MIN_TRADABLE_RANGE_TO_COST_RATIO` variable is retired. Round-trip execution costs are evaluated inside structural model economics while the shared platform retains operational hard-safety ceilings.
 
 ### 8. Cron
 
@@ -291,8 +300,8 @@ Historical local backtest/simulation commands are intentionally not part of this
 1. Verify the Neon integration and `DATABASE_URL`.
 2. Synchronize Production Environment Variables with the current `.env.example`.
 3. Remove old `model1-blind-*`, `model2-blind-*`, old strategy variables and every `BACKTEST_*` variable.
-4. Set `AB_ENGINE_IDS=model1-v1,model2-v1`.
-5. Set `AB_EXPERIMENT_ID=model1-v1-vs-model2-v1`.
+4. Set `AB_ENGINE_IDS=model1-v1,model2-v2`.
+5. Set `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2`.
 6. Keep `TRADING_ENABLED=false` and `EXCHANGE_EXECUTION_ENGINE=none` initially.
 7. Verify `/api/health`.
 8. Send one authenticated `/api/cron` request; on an empty database this can trigger runtime schema bootstrap.

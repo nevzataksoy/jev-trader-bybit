@@ -13,6 +13,8 @@ export const model2V2Engine: StrategyEngine = {
   id: "model2-v2",
   family: "model2",
   version: "v2",
+  policyRevision: "structure-economics-r2",
+  configRevision: "2026-09-24-r1",
   orderDecisions,
   planExecution: (decision, context) => planModelExecution(decision, context, getModelConfig()),
   buildAuditState: (state) => buildBlindModel2State(state).state,

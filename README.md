@@ -9,9 +9,10 @@ JEV TRADER BYBIT, USDT / BTC / ETH / XAUT arasında sermaye rotasyonu yapan, Byb
 Bu repo temiz başlangıç mimarisine geçirilmiştir. Eski V1/V2/V3/V4 isim zinciri kaldırılmıştır. Mevcut eski V4 davranışı başlangıç noktası kabul edilerek iki model ailesi aşağıdaki kimliklerle yeniden başlatılmıştır:
 
 - `model1-v1`
-- `model2-v1`
+- `model2-v1` (tarihsel baseline)
+- `model2-v2` (aktif rotation modeli)
 
-Varsayılan A/B karşılaştırması `model1-v1` ve `model2-v1` arasında çalışır.
+Aktif 42 günlük A/B karşılaştırması `model1-v1` ve `model2-v2` arasında çalışır. Bu gözlem penceresi içinde davranış iyileştirmeleri yeni engine/version açmak yerine `policyRevision/configRevision/sourceRevision` metadata'sı ile işaretlenir; experiment başlangıç/bitiş tarihi ve paper portföyleri sıfırlanmaz.
 
 ### Temel mimari kural
 
@@ -108,8 +109,8 @@ cron
 piyasa verisini bir kez çek
   ↓
 shared snapshot
-  ├── model1-v1 → kendi Jev sorgusu → kendi analiz/policy/confirmation → final karar
-  └── model2-v1 → kendi Jev sorgusu → kendi analiz/policy/confirmation → final karar
+  ├── model1-v1 → kendi Jev sorgusu → yapısal analiz/policy/confirmation → final karar
+  └── model2-v2 → rotation → yapısal analiz/policy/confirmation → final karar
   ↓
 platform safety
   ↓
@@ -123,9 +124,27 @@ Varsayılan:
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_ENGINE_IDS=model1-v1,model2-v1
-AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+AB_ENGINE_IDS=model1-v1,model2-v2
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
 ```
+
+### Yapısal trade ekonomisi ve revision audit
+
+Aktif modeller giriş/çıkış ekonomisini sabit bir ATR/maliyet hard gate'i ile değil, çoklu zaman diliminden türetilen destek/direnç bölgeleri üzerinden değerlendirir:
+
+- 15m / 1h / 4h ATR ve varlığın kendi 15m ATR percentile bağlamı
+- 15m / 1h / 4h swing high/low kümeleri
+- 24h / 3d / 7d kanallar
+- EMA 21/50/200, VWAP ve Bollinger referansları
+- orderbook'taki en büyük bid/ask duvarları ve ardışık çevrim persistence skoru
+- trade-flow imbalance, open interest değişimleri ve funding
+- FRED faiz / real-yield / breakeven-inflation bağlamı
+
+Model, mevcut fiyattan yapısal direnç hedefine kadar alanı ve support/invalidation mesafesini hesaplar; taker fee + spread + tahmini slippage bu yapısal fırsatın ekonomisinden düşülür. `ATR-to-cost` oranı tanısal olarak saklanır fakat platform artık bunu sabit `2.50` eşiğiyle stratejik BUY engeli yapmaz.
+
+Platform safety; veri tazeliği, anormal spread, confidence, drawdown circuit breaker, günlük emir limiti, aşırı realized volatility, USDT reserve, minimum trade ve allocation cap gibi modelden bağımsız hard gate'leri korur.
+
+Her deployment/config davranışı `engine_policy_revisions` tablosunda tekil olarak tutulur; her `engine_run` yalnız revision id referansı taşır. Platformun reddettiği BUY/SELL girişimleri sparse `engine_counterfactuals` kayıtları olarak tutulur ve mevcut 15 dakikalık end-of-cycle cleanup +15m/+1h/+4h/+12h fiyat sonuçlarını otomatik doldurur. Ham mum/orderbook verisi ikinci kez ayrı tabloya kopyalanmaz.
 
 ### Dashboard ve runtime endpoint ayrımı
 
@@ -176,9 +195,10 @@ JEV TRADER BYBIT rotates capital across USDT / BTC / ETH / XAUT using Bybit mark
 The repository now uses a clean-baseline model architecture. Historical V1/V2/V3/V4 naming was removed. The former V4 behavior is treated as the initial baseline and is now exposed as:
 
 - `model1-v1`
-- `model2-v1`
+- `model2-v1` (historical baseline)
+- `model2-v2` (active rotation engine)
 
-The default A/B experiment compares those two engines.
+The active 42-day A/B experiment compares `model1-v1` with `model2-v2`. In-place behavior improvements are audited with `policyRevision/configRevision/sourceRevision` metadata so the experiment clock and paper portfolios do not reset.
 
 ### Core architecture rule
 
@@ -259,8 +279,8 @@ cron
 fetch market data once
   ↓
 shared snapshot
-  ├── model1-v1 → Jev → local analysis/policy/confirmation → final decision
-  └── model2-v1 → Jev → local analysis/policy/confirmation → final decision
+  ├── model1-v1 → Jev → structural analysis/policy/confirmation → final decision
+  └── model2-v2 → rotation → structural analysis/policy/confirmation → final decision
   ↓
 platform safety
   ↓
@@ -268,6 +288,14 @@ paper execution / persistence
 ```
 
 Real exchange routing is hard-disabled while `STRATEGY_RUN_MODE=ab_test`.
+
+### Structural trade economics and revision audit
+
+Active engines judge entry/exit economics from multi-timeframe support/resistance geometry rather than a fixed ATR/cost hard gate. The market state combines 15m/1h/4h volatility context, swing zones, 24h/3d/7d channels, EMA/VWAP/Bollinger references, persistent order-book walls, trade flow, OI/funding and macro regime modifiers. Fees, spread and estimated slippage are deducted from the structural target opportunity; ATR/cost remains diagnostic.
+
+Shared platform safety still owns non-strategic hard gates such as freshness, abnormal spread, confidence, drawdown, order-count ceilings, extreme realized volatility, reserves, minimum trade size and allocation caps.
+
+Revision metadata is deduplicated in `engine_policy_revisions`; runs reference the revision id rather than duplicating config JSON. Platform-rejected BUY/SELL attempts are stored sparsely in `engine_counterfactuals`; the existing 15-minute end-of-cycle cleanup fills +15m/+1h/+4h/+12h outcomes and applies retention. Raw candles and order books are not duplicated into new history tables.
 
 ### Dashboard and runtime endpoint split
 

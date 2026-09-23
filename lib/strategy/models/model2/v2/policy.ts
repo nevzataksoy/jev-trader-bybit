@@ -23,6 +23,11 @@ interface StatefulOpportunity {
   readiness: EntryReadiness;
   readinessScore: number;
   confidence: number;
+  successProbability: number;
+  roundTripCostPct: number;
+  targetDistancePct: number;
+  invalidationDistancePct: number;
+  rewardRiskRatio: number;
   expectedNetEdgePct: number;
   grossExpectedEdgePct: number;
   opportunityScore: number;
@@ -65,6 +70,11 @@ export function unifiedRiskFraction(choice: JevPortfolioJudgments["gross_risk_bu
   return { zero: 0, low: 0.25, medium: 0.5, high: 0.8 }[choice];
 }
 
+function supportProximityLimit(market: MarketIndicatorState) {
+  const atr = Math.max(finite(market.atr_14_pct, 0.1), 0.05);
+  return Math.max(atr * 1.5, 0.12);
+}
+
 function setupIsViable(
   setup: TradingSetup,
   market: MarketIndicatorState,
@@ -72,39 +82,90 @@ function setupIsViable(
   config: TradingConfig,
 ) {
   const channelPosition = finite(market.channel_24h_position, 0.5);
+  const supportDistance = finite(market.distance_to_support_pct, Number.POSITIVE_INFINITY);
+  const supportStrength = finite(market.support_strength, 0.5);
   if (setup === "trend_pullback") {
     return (market.regime === "bull_trend" || judgments.regime.choice === "uptrend")
       && market.last_price > market.ema_200
-      && channelPosition >= 0.1
-      && channelPosition <= 0.9
-      && market.price_zscore_20 <= 1;
+      && channelPosition >= 0.08
+      && channelPosition <= 0.92
+      && market.price_zscore_20 <= 1
+      && supportDistance <= supportProximityLimit(market)
+      && supportStrength >= 0.15;
   }
   if (setup === "upside_breakout") {
     return channelPosition >= 0.82
       && market.volume_ratio_20 >= 0.75
-      && judgments.false_breakout < 0.65;
+      && judgments.false_breakout < 0.65
+      && (market.trade_flow_imbalance ?? 0) >= -0.2;
   }
   if (setup === "range_reversion") {
     return (market.regime === "range" || judgments.regime.choice === "range")
-      && channelPosition <= 0.5
-      && market.price_zscore_20 <= -0.2
-      && judgments.reversal_confirmation >= 0.45;
+      && channelPosition <= 0.55
+      && market.price_zscore_20 <= -0.15
+      && judgments.reversal_confirmation >= 0.45
+      && supportDistance <= supportProximityLimit(market);
   }
   if (setup === "bear_rebound") {
     return (market.regime === "bear_trend" || judgments.regime.choice === "downtrend")
       && market.countertrend_rebound_score >= Math.max(0, config.minBearReboundScore - 0.08)
-      && judgments.reversal_confirmation >= 0.5;
+      && judgments.reversal_confirmation >= 0.5
+      && supportDistance <= supportProximityLimit(market);
   }
   return false;
 }
 
-function rewardAndRiskPct(setup: TradingSetup, market: MarketIndicatorState) {
-  const atr = Math.max(finite(market.atr_14_pct, 0.1), 0.1);
-  const upsideToPriorHigh = Math.max(0, finite(market.distance_to_24h_high_atr) * atr);
-  if (setup === "upside_breakout") return { reward: atr * 2.2, risk: atr * 1.15 };
-  if (setup === "range_reversion") return { reward: Math.max(atr, upsideToPriorHigh * 0.55), risk: atr };
-  if (setup === "bear_rebound") return { reward: atr * 1.6, risk: atr * 1.1 };
-  return { reward: Math.max(atr * 1.4, Math.min(upsideToPriorHigh, atr * 3)), risk: atr * 1.05 };
+function structuralRewardRisk(market: MarketIndicatorState, setup: TradingSetup) {
+  const atr = Math.max(finite(market.atr_14_pct, 0.1), 0.05);
+  const targetDistance = finite(market.distance_to_resistance_pct, 0);
+  const supportLow = finite(market.support_zone_low, 0);
+  const invalidationDistance = supportLow > 0 && market.last_price > 0
+    ? Math.max(atr * 0.55, (market.last_price - supportLow) / market.last_price * 100)
+    : atr * (setup === "upside_breakout" ? 1.15 : 1.05);
+  const fallbackReward = setup === "upside_breakout"
+    ? atr * 2.2
+    : setup === "range_reversion"
+      ? atr * 1.5
+      : setup === "bear_rebound"
+        ? atr * 1.6
+        : atr * 1.8;
+  const reward = Math.max(targetDistance, fallbackReward);
+  return {
+    reward,
+    risk: invalidationDistance,
+    targetDistance,
+    invalidationDistance,
+    rewardRiskRatio: reward / Math.max(invalidationDistance, 0.0001),
+  };
+}
+
+function microstructureAdjustment(market: MarketIndicatorState) {
+  const wallBias = finite(market.bid_wall_strength) - finite(market.ask_wall_strength);
+  const wallPersistence = clamp(
+    (finite(market.bid_wall_persistence) - finite(market.ask_wall_persistence)) / 8,
+    -1,
+    1,
+  );
+  const flow = clamp(finite(market.trade_flow_imbalance), -1, 1);
+  const squeeze = clamp(finite(market.short_squeeze_risk) - finite(market.long_squeeze_risk), -1, 1);
+  return wallBias * 0.035 + wallPersistence * 0.02 + flow * 0.035 + squeeze * 0.025;
+}
+
+function resistanceExitSignal(market: MarketIndicatorState, position: PositionContext, exitCostPct: number) {
+  if (position.status !== "held") return false;
+  const profitableAfterExit = (position.unrealized_pnl_pct ?? Number.NEGATIVE_INFINITY) > exitCostPct;
+  if (!profitableAfterExit) return false;
+  const resistanceDistance = finite(market.distance_to_resistance_pct, Number.POSITIVE_INFINITY);
+  const nearResistance = resistanceDistance <= Math.max(finite(market.atr_14_pct, 0.1) * 0.35, 0.08);
+  const rejection = market.upper_wick_atr >= 0.35
+    || (market.trade_flow_imbalance ?? 0) <= -0.12
+    || finite(market.ask_wall_strength) - finite(market.bid_wall_strength) >= 0.18
+    || market.macd_hist < 0;
+  const acceptedBreakout = market.breakout_24h_pct > 0
+    && market.return_15m_pct >= 0
+    && market.volume_ratio_20 >= 1
+    && (market.trade_flow_imbalance ?? 0) >= 0;
+  return nearResistance && rejection && !acceptedBreakout;
 }
 
 function evaluateOpportunity(
@@ -125,18 +186,29 @@ function evaluateOpportunity(
       + judgments.entry_readiness.confidence
       + judgments.setup_quality.confidence
   ) / 4);
+  const roundTripCostPct = feePct * 2 + market.bid_ask_spread_pct + config.estimatedSlippagePct * 2;
+  const exitCostPct = feePct + market.bid_ask_spread_pct / 2 + config.estimatedSlippagePct;
+  const structuralExit = resistanceExitSignal(market, position, exitCostPct);
   const reduce = rotation.action.choice === "reduce"
     || rotation.action.choice === "exit"
     || judgments.cut_position >= config.cutPositionProbability
     || judgments.disorderly >= config.disorderlyProbability
     || setup === "reduce"
+    || structuralExit
     || (position.status === "held" && directionEdge <= -config.minDirectionalEdge);
+
+  const { reward, risk, targetDistance, invalidationDistance, rewardRiskRatio } = structuralRewardRisk(market, setup);
   if (reduce) {
     return {
       setup,
       readiness,
       readinessScore,
       confidence: Math.max(confidence, judgments.cut_position, judgments.disorderly),
+      successProbability: 0,
+      roundTripCostPct,
+      targetDistancePct: targetDistance,
+      invalidationDistancePct: invalidationDistance,
+      rewardRiskRatio,
       expectedNetEdgePct: 0,
       grossExpectedEdgePct: 0,
       opportunityScore: 0,
@@ -152,26 +224,29 @@ function evaluateOpportunity(
   const patternProbability = setup === "range_reversion" || setup === "bear_rebound"
     ? judgments.reversal_confirmation
     : judgments.follow_through.probabilities.continuation;
+  const supportStrength = finite(market.support_strength, 0.5);
   const successProbability = clamp(
-    judgments.direction.probabilities.up * 0.48
-      + setupQuality * 0.2
-      + patternProbability * 0.14
-      + judgments.liquidity_ok * 0.1
-      + readinessScore * 0.08
-      - (setup === "upside_breakout" ? judgments.false_breakout * 0.12 : 0),
+    judgments.direction.probabilities.up * 0.43
+      + setupQuality * 0.18
+      + patternProbability * 0.13
+      + judgments.liquidity_ok * 0.09
+      + readinessScore * 0.07
+      + supportStrength * 0.05
+      + microstructureAdjustment(market)
+      - (setup === "upside_breakout" ? judgments.false_breakout * 0.10 : 0),
     0.05,
     0.92,
   );
-  const { reward, risk } = rewardAndRiskPct(setup, market);
-  const roundTripCost = feePct * 2 + market.bid_ask_spread_pct + config.estimatedSlippagePct * 2;
   const grossExpectedEdgePct = successProbability * reward - (1 - successProbability) * risk;
-  const expectedNetEdgePct = grossExpectedEdgePct - roundTripCost;
+  const expectedNetEdgePct = grossExpectedEdgePct - roundTripCostPct;
+  const structuralNetRoomPct = targetDistance - roundTripCostPct;
   const viableStructure = setupIsViable(setup, market, judgments, config);
   const blockers: DecisionBlocker[] = [];
   if (readiness === "no_entry") blockers.push("JEV_NO_ENTRY");
   if (setup === "none" || !viableStructure) blockers.push("STRUCTURE_REJECTED");
   if (directionEdge < config.minDirectionalEdge) blockers.push("DIRECTIONAL_EDGE_LOW");
   if (judgments.setup_quality.score < config.minSetupScore) blockers.push("SETUP_QUALITY_LOW");
+  if (targetDistance > 0 && structuralNetRoomPct < config.minExpectedNetEdgePct) blockers.push("TARGET_ROOM_LOW");
   if (expectedNetEdgePct < config.minExpectedNetEdgePct) blockers.push("NET_EDGE_LOW");
   if (judgments.liquidity_ok < config.minLiquidityProbability) blockers.push("LIQUIDITY_LOW");
   if (judgments.disorderly >= config.disorderlyProbability) blockers.push("DISORDERLY_MARKET");
@@ -183,7 +258,8 @@ function evaluateOpportunity(
   const rotationCanAllocate = rotation.action.choice === "enter"
     || rotation.action.choice === "increase"
     || rotation.action.choice === "watch";
-  const economicsExecutable = expectedNetEdgePct >= config.minExpectedNetEdgePct;
+  const economicsExecutable = expectedNetEdgePct >= config.minExpectedNetEdgePct
+    && (targetDistance <= 0 || structuralNetRoomPct >= config.minExpectedNetEdgePct);
   const pendingEligible = rotation.action.choice === "watch"
     && pendingBlocker !== null
     && hardBlockers.length === 0
@@ -201,7 +277,8 @@ function evaluateOpportunity(
     && readinessScore >= 0.2;
   const opportunityScore = candidate || pendingEligible
     ? Math.max(0.0001, successProbability * setupQuality * judgments.liquidity_ok
-      * (0.5 + readinessScore) * (1 + Math.max(expectedNetEdgePct, 0) / Math.max(risk, 0.1)))
+      * (0.5 + readinessScore) * Math.min(2, Math.max(0.5, rewardRiskRatio))
+      * (1 + Math.max(expectedNetEdgePct, 0) / Math.max(risk, 0.1)))
     : 0;
 
   return {
@@ -209,6 +286,11 @@ function evaluateOpportunity(
     readiness,
     readinessScore,
     confidence,
+    successProbability,
+    roundTripCostPct,
+    targetDistancePct: targetDistance,
+    invalidationDistancePct: invalidationDistance,
+    rewardRiskRatio,
     expectedNetEdgePct,
     grossExpectedEdgePct,
     opportunityScore,
@@ -264,7 +346,8 @@ export function buildDecisions(
     const strong = rotationJudgments[asset].suitability.choice === "strong"
       && judgments[asset].setup_quality.score >= 3
       && opportunity.confidence >= 0.75
-      && judgments[asset].liquidity_ok >= 0.75;
+      && judgments[asset].liquidity_ok >= 0.75
+      && opportunity.rewardRiskRatio >= 1.5;
     const firstTranche = (strong
       ? config.strongInitialEntryPctOfPortfolio
       : config.initialEntryPctOfPortfolio) * 100;
@@ -300,7 +383,13 @@ export function buildDecisions(
       : opportunity.readyNow && delta >= config.allocationDeadbandPct && grossRiskBudgetPct > 0
         ? "buy"
         : "hold";
-    if (action === "hold" && blockers.length === 0) blockers.push("ALLOCATION_DEADBAND");
+    if (action === "hold" && blockers.length === 0) {
+      blockers.push(
+        opportunity.reduce || (rotation.action.choice === "hold" && !opportunity.candidate)
+          ? "NO_ALLOCATION_INTENT"
+          : "ALLOCATION_DEADBAND",
+      );
+    }
     const uniqueBlockers = [...new Set(blockers)];
     const state = uniqueBlockers.includes("PENDING_CLOSE") || uniqueBlockers.includes("PENDING_RETEST")
       ? "pending"
@@ -323,17 +412,21 @@ export function buildDecisions(
       readinessScore: opportunity.readinessScore,
       signalState: state,
       blockedBy: uniqueBlockers,
+      grossExpectedEdgePct: opportunity.grossExpectedEdgePct,
+      successProbability: opportunity.successProbability,
+      roundTripCostPct: opportunity.roundTripCostPct,
+      targetDistancePct: opportunity.targetDistancePct,
+      invalidationDistancePct: opportunity.invalidationDistancePct,
+      rewardRiskRatio: opportunity.rewardRiskRatio,
       policyReason: `Model2 V2 rotation action ${rotation.action.choice}, suitability ${rotation.suitability.choice}; `
-        + `readiness probability score ${opportunity.readinessScore.toFixed(3)}; `
-        + `gross edge ${opportunity.grossExpectedEdgePct.toFixed(3)}%, net edge ${opportunity.expectedNetEdgePct.toFixed(3)}%; `
-        + `native ${portfolioJudgments.gross_risk_budget.choice} risk budget ${grossRiskBudgetPct.toFixed(2)}%; `
-        + `target ${target.toFixed(2)}% versus current ${current.toFixed(2)}%; `
+        + `support→resistance room ${opportunity.targetDistancePct.toFixed(3)}%, invalidation distance ${opportunity.invalidationDistancePct.toFixed(3)}%, R:R ${opportunity.rewardRiskRatio.toFixed(2)}; `
+        + `gross edge ${opportunity.grossExpectedEdgePct.toFixed(3)}%, round-trip cost ${opportunity.roundTripCostPct.toFixed(3)}%, net edge ${opportunity.expectedNetEdgePct.toFixed(3)}%; `
+        + `native ${portfolioJudgments.gross_risk_budget.choice} risk budget ${grossRiskBudgetPct.toFixed(2)}%; target ${target.toFixed(2)}% versus current ${current.toFixed(2)}%; `
         + (uniqueBlockers.length ? `blocked by ${uniqueBlockers.join(", ")}.` : "eligible for deterministic execution."),
       judgments: judgments[asset],
       rotationAction: rotation.action.choice,
       rotationSuitability: rotation.suitability.choice,
       rotationThesisHealth: rotation.thesisHealth.choice,
-      grossExpectedEdgePct: opportunity.grossExpectedEdgePct,
     };
   });
 }

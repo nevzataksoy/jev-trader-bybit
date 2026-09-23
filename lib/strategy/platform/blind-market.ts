@@ -61,9 +61,19 @@ export interface BlindCandidateNumericState {
     candle_body_atr: number;
     upper_wick_atr: number;
     lower_wick_atr: number;
+    support_zone_low_distance_pct: number;
+    support_zone_high_distance_pct: number;
+    support_strength: number;
+    resistance_zone_low_distance_pct: number;
+    resistance_zone_high_distance_pct: number;
+    resistance_strength: number;
+    secondary_resistance_distance_pct: number;
   };
   risk_and_participation: {
     atr_14_pct: number;
+    atr_14_1h_pct: number;
+    atr_14_4h_pct: number;
+    atr_15m_percentile: number;
     realized_volatility_24h_pct: number;
     downside_volatility_24h_pct: number;
     drawdown_20d_pct: number;
@@ -80,6 +90,13 @@ export interface BlindCandidateNumericState {
     spread_pct: number;
     depth_ratio: number;
     orderbook_imbalance: number;
+    orderbook_wall_bias: number;
+    bid_wall_distance_pct: number;
+    bid_wall_share: number;
+    bid_wall_persistence: number;
+    ask_wall_distance_pct: number;
+    ask_wall_share: number;
+    ask_wall_persistence: number;
     trade_flow_imbalance: number | null;
     trade_flow_window_seconds: number | null;
     data_quality: MarketIndicatorState["data_quality"];
@@ -107,6 +124,9 @@ export interface BlindNumericState {
     policy_regime: string;
     real_yield_pressure: string;
     curve_10y_2y_bps: number | null;
+    two_year_yield_change_5d_bps: number | null;
+    real_yield_change_5d_bps: number | null;
+    inflation_expectations_change_5d_bps: number | null;
     risk_sizing_owner: "deterministic_application";
   };
   candidates: Record<BlindSlot, BlindCandidateNumericState>;
@@ -222,7 +242,9 @@ export function buildBlindNumericState(state: JevTradingState) {
         candle_body_atr: round(market.candle_body_atr), upper_wick_atr: round(market.upper_wick_atr), lower_wick_atr: round(market.lower_wick_atr),
       },
       risk_and_participation: {
-        atr_14_pct: round(market.atr_14_pct), realized_volatility_24h_pct: round(market.realized_volatility_24h_pct),
+        atr_14_pct: round(market.atr_14_pct), atr_14_1h_pct: round(market.atr_14_1h_pct),
+        atr_14_4h_pct: round(market.atr_14_4h_pct), atr_15m_percentile: round(market.atr_15m_percentile),
+        realized_volatility_24h_pct: round(market.realized_volatility_24h_pct),
         downside_volatility_24h_pct: round(market.downside_volatility_24h_pct), drawdown_20d_pct: round(market.drawdown_20d_pct),
         volume_ratio_20: round(market.volume_ratio_20), volume_zscore_20: round(market.volume_zscore_20),
         distance_vwap_24h_pct: round(market.distance_vwap_24h_pct), countertrend_rebound_score: round(market.countertrend_rebound_score),
@@ -231,7 +253,11 @@ export function buildBlindNumericState(state: JevTradingState) {
       execution: {
         round_trip_cost_pct: round(roundTripCost), atr_to_cost_ratio: round(market.atr_14_pct / Math.max(roundTripCost, 0.0001)),
         spread_pct: round(market.bid_ask_spread_pct), depth_ratio: round(market.depth_ratio),
-        orderbook_imbalance: round(market.orderbook_imbalance), trade_flow_imbalance: market.trade_flow_imbalance === null ? null : round(market.trade_flow_imbalance),
+        orderbook_imbalance: round(market.orderbook_imbalance), orderbook_wall_bias: round(market.orderbook_wall_bias),
+        bid_wall_distance_pct: round(market.largest_bid_wall_distance_pct), bid_wall_share: round(market.bid_wall_share),
+        bid_wall_persistence: round(market.bid_wall_persistence), ask_wall_distance_pct: round(market.largest_ask_wall_distance_pct),
+        ask_wall_share: round(market.ask_wall_share), ask_wall_persistence: round(market.ask_wall_persistence),
+        trade_flow_imbalance: market.trade_flow_imbalance === null ? null : round(market.trade_flow_imbalance),
         trade_flow_window_seconds: market.trade_flow_window_seconds, data_quality: market.data_quality,
         microstructure_provenance: microstructureProvenance(market),
       },
@@ -258,6 +284,9 @@ export function buildBlindNumericState(state: JevTradingState) {
       policy_regime: state.macro?.policy_regime ?? "unknown",
       real_yield_pressure: state.macro?.gold_real_yield_regime ?? "unknown",
       curve_10y_2y_bps: state.macro?.curve.slope_10y_2y_bps ?? null,
+      two_year_yield_change_5d_bps: state.macro?.series.DGS2?.change_5d_bps ?? null,
+      real_yield_change_5d_bps: state.macro?.series.DFII10?.change_5d_bps ?? null,
+      inflation_expectations_change_5d_bps: state.macro?.series.T10YIE?.change_5d_bps ?? null,
       risk_sizing_owner: "deterministic_application",
     },
     candidates,

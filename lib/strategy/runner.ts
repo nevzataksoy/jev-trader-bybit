@@ -13,6 +13,7 @@ import type {
 import {
   beginEngineRun,
   completeEngineRun,
+  ensureEngineRevision,
   failEngineRun,
   getPaperTradingState,
   savePaperEquitySnapshot,
@@ -60,7 +61,15 @@ export async function runPaperEngineCycle(
   shared: SharedEngineCycleContext,
 ): Promise<PaperEngineCycleResult> {
   const engine = getStrategyEngine(engineId);
-  await beginEngineRun(shared.experimentId, shared.cycleKey, shared.snapshotId, engine.id, engine.version);
+  const revisionId = await ensureEngineRevision({
+    experimentId: shared.experimentId,
+    engineId: engine.id,
+    engineVersion: engine.version,
+    policyRevision: engine.policyRevision ?? "legacy",
+    configRevision: engine.configRevision ?? "legacy",
+    codeSha: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null,
+  });
+  await beginEngineRun(shared.experimentId, shared.cycleKey, shared.snapshotId, engine.id, engine.version, revisionId);
   try {
     const paper = await getPaperTradingState(
       shared.experimentId,
@@ -121,6 +130,15 @@ export async function runPaperEngineCycle(
           action: decision.action,
           status: decision.action === "hold" ? "held" : "skipped",
           reason: plan.reason,
+          riskMetrics: {
+            roundTripCostPct: decision.roundTripCostPct,
+            atrPct: shared.indicators[decision.asset].atr_14_pct,
+            atrToCostRatio: decision.roundTripCostPct
+              ? shared.indicators[decision.asset].atr_14_pct / decision.roundTripCostPct
+              : undefined,
+            targetDistancePct: decision.targetDistancePct,
+            expectedNetEdgePct: decision.expectedNetEdgePct,
+          },
         });
         continue;
       }

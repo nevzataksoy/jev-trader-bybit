@@ -13,6 +13,8 @@ export const model2V2Engine: StrategyEngine = {
   id: "model2-v2",
   family: "model2",
   version: "v2",
+  policyRevision: "r2-structure-economics-20260924",
+  getRevisionConfig: getModelConfig,
   orderDecisions,
   planExecution: (decision, context) => planModelExecution(decision, context, getModelConfig()),
   buildAuditState: (state) => buildBlindModel2State(state).state,
@@ -37,6 +39,7 @@ export const model2V2Engine: StrategyEngine = {
       engineState.positions,
       feePctByAsset,
       config,
+      engineState.macro,
     );
     const decisions = await applyConfirmation({
       scopeId: runtime.scopeId,

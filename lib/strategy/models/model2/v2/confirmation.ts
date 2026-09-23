@@ -73,10 +73,10 @@ function mapPendingSignal(row: Record<string, unknown>): PendingSignal {
 }
 
 function triggerPrice(setup: TradingSetup, market: MarketIndicatorState) {
-  if (setup === "upside_breakout") return market.resistance_zone_high;
-  if (setup === "range_reversion") return market.support_zone_high;
-  if (setup === "bear_rebound") return Math.max(market.support_zone_high, market.ema_9);
-  return market.support_zone_high;
+  if (setup === "upside_breakout") return market.resistance_zone_high ?? market.channel_24h_high;
+  if (setup === "range_reversion") return market.support_zone_high ?? market.channel_24h_low;
+  if (setup === "bear_rebound") return Math.max(market.support_zone_high ?? market.channel_24h_low, market.ema_9);
+  return market.support_zone_high ?? market.ema_21;
 }
 
 function hasHardFatalBlocker(decision: JevDecision) {

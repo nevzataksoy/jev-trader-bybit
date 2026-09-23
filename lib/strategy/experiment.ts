@@ -67,6 +67,9 @@ export interface EngineComparisonPoint {
 export interface EngineComparisonSummary {
   engineId: StrategyEngineId;
   engineVersion: string;
+  currentPolicyRevision: string | null;
+  currentConfigRevision: string | null;
+  currentCodeSha: string | null;
   totalEquityUsdt: number;
   cashUsdt: number;
   returnPct: number;
@@ -107,6 +110,9 @@ export interface ExperimentOrderItem {
 export interface ExperimentRunItem {
   engineId: StrategyEngineId;
   engineVersion: string;
+  policyRevision: string | null;
+  configRevision: string | null;
+  codeSha: string | null;
   cycleKey: string;
   status: "running" | "completed" | "failed";
   jevModel: string | null;
@@ -199,6 +205,31 @@ export async function ensureStrategyExperiment(
   });
 }
 
+export async function ensureEngineRevision(input: {
+  experimentId: string;
+  engineId: StrategyEngineId;
+  engineVersion: string;
+  policyRevision: string;
+  configRevision: string;
+  codeSha?: string | null;
+}) {
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO engine_revisions (
+      experiment_id, engine_id, engine_version, policy_revision, config_revision, code_sha
+    ) VALUES (
+      ${input.experimentId}, ${input.engineId}, ${input.engineVersion},
+      ${input.policyRevision}, ${input.configRevision}, ${input.codeSha ?? null}
+    )
+    ON CONFLICT (experiment_id, engine_id, policy_revision, config_revision)
+    DO UPDATE SET
+      engine_version = EXCLUDED.engine_version,
+      code_sha = COALESCE(EXCLUDED.code_sha, engine_revisions.code_sha)
+    RETURNING id
+  `;
+  return Number(rows[0].id);
+}
+
 export async function saveSharedMarketSnapshot(input: SharedSnapshotInput) {
   await ensureDatabase();
   const sql = getSql();
@@ -229,15 +260,17 @@ export async function beginEngineRun(
   snapshotId: number,
   engineId: StrategyEngineId,
   engineVersion: string,
+  revisionId: number | null,
 ) {
   const sql = getSql();
   await sql`
     INSERT INTO engine_runs (
-      experiment_id, cycle_key, snapshot_id, engine_id, engine_version, status, started_at
-    ) VALUES (${experimentId}, ${cycleKey}, ${snapshotId}, ${engineId}, ${engineVersion}, 'running', NOW())
+      experiment_id, cycle_key, snapshot_id, engine_id, engine_version, revision_id, status, started_at
+    ) VALUES (${experimentId}, ${cycleKey}, ${snapshotId}, ${engineId}, ${engineVersion}, ${revisionId}, 'running', NOW())
     ON CONFLICT (experiment_id, cycle_key, engine_id) DO UPDATE SET
       snapshot_id = EXCLUDED.snapshot_id,
       engine_version = EXCLUDED.engine_version,
+      revision_id = EXCLUDED.revision_id,
       status = 'running',
       started_at = NOW(),
       completed_at = NULL,
@@ -507,11 +540,13 @@ export async function getModelsDashboardState(
       LIMIT 500
     `,
     sql`
-      SELECT engine_id, engine_version, cycle_key, status, jev_model, latency_ms, usage,
-             decisions, executions, error, started_at, completed_at
-      FROM engine_runs
-      WHERE experiment_id = ${experimentId}
-      ORDER BY started_at DESC
+      SELECT run.engine_id, run.engine_version, run.cycle_key, run.status, run.jev_model, run.latency_ms, run.usage,
+             run.decisions, run.executions, run.error, run.started_at, run.completed_at,
+             revision.policy_revision, revision.config_revision, revision.code_sha
+      FROM engine_runs run
+      LEFT JOIN engine_revisions revision ON revision.id = run.revision_id
+      WHERE run.experiment_id = ${experimentId}
+      ORDER BY run.started_at DESC
       LIMIT 200
     `,
     sql`
@@ -571,6 +606,9 @@ export async function getModelsDashboardState(
   }));
   const runs: ExperimentRunItem[] = runRows.map((row) => ({
     engineId: String(row.engine_id) as StrategyEngineId, engineVersion: String(row.engine_version),
+    policyRevision: row.policy_revision ? String(row.policy_revision) : null,
+    configRevision: row.config_revision ? String(row.config_revision) : null,
+    codeSha: row.code_sha ? String(row.code_sha) : null,
     cycleKey: String(row.cycle_key), status: String(row.status) as ExperimentRunItem["status"],
     jevModel: row.jev_model ? String(row.jev_model) : null,
     latencyMs: row.latency_ms === null ? null : Number(row.latency_ms),
@@ -594,9 +632,13 @@ export async function getModelsDashboardState(
     const balances = ASSET_IDS.map((asset) => ({ coin: asset, free: quantities.get(asset) ?? 0, locked: 0, total: quantities.get(asset) ?? 0, usdtValue: (quantities.get(asset) ?? 0) * latestPrices[asset] } satisfies SpotBalance));
     const completedRuns = Number(runStats?.completed_runs ?? 0);
     const abstentionRuns = Number(runStats?.abstention_runs ?? 0);
+    const latestRun = runs.find((run) => run.engineId === engineId);
     return {
       engineId,
       engineVersion: engineVersions[engineId],
+      currentPolicyRevision: latestRun?.policyRevision ?? null,
+      currentConfigRevision: latestRun?.configRevision ?? null,
+      currentCodeSha: latestRun?.codeSha ?? null,
       totalEquityUsdt: latest?.totalEquityUsdt ?? initialCapital,
       cashUsdt: latest?.cashUsdt ?? initialCapital,
       returnPct: initialCapital > 0 ? ((latest?.totalEquityUsdt ?? initialCapital) / initialCapital - 1) * 100 : 0,

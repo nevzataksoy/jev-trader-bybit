@@ -128,6 +128,19 @@ async function createSchema() {
     )
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS engine_revisions (
+      id BIGSERIAL PRIMARY KEY,
+      experiment_id TEXT NOT NULL REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
+      engine_id TEXT NOT NULL,
+      engine_version TEXT NOT NULL,
+      policy_revision TEXT NOT NULL,
+      config_revision TEXT NOT NULL,
+      code_sha TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (experiment_id, engine_id, policy_revision, config_revision)
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS shared_market_snapshots (
       id BIGSERIAL PRIMARY KEY,
       cycle_key TEXT NOT NULL UNIQUE,
@@ -147,6 +160,7 @@ async function createSchema() {
       snapshot_id BIGINT NOT NULL REFERENCES shared_market_snapshots(id) ON DELETE CASCADE,
       engine_id TEXT NOT NULL,
       engine_version TEXT NOT NULL,
+      revision_id BIGINT REFERENCES engine_revisions(id) ON DELETE SET NULL,
       status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
       started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       completed_at TIMESTAMPTZ,
@@ -240,6 +254,7 @@ async function createSchema() {
       resolution_reason TEXT
     )
   `;
+  await sql`ALTER TABLE engine_runs ADD COLUMN IF NOT EXISTS revision_id BIGINT`;
   await sql`CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC)`;
@@ -247,6 +262,7 @@ async function createSchema() {
   await sql`CREATE INDEX IF NOT EXISTS daily_portfolio_snapshots_captured_idx ON daily_portfolio_snapshots(captured_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS shared_market_snapshots_captured_idx ON shared_market_snapshots(captured_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS engine_runs_experiment_idx ON engine_runs(experiment_id, started_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS engine_revisions_experiment_idx ON engine_revisions(experiment_id, engine_id, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS engine_equity_experiment_idx ON engine_equity_snapshots(experiment_id, engine_id, captured_at)`;
   await sql`CREATE INDEX IF NOT EXISTS engine_orders_experiment_idx ON engine_orders(experiment_id, engine_id, created_at DESC)`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS engine_pending_signals_active_idx ON engine_pending_signals(scope_id, engine_id, asset) WHERE status = 'active'`;
@@ -437,6 +453,7 @@ export interface DatabaseCleanupResult {
   orphanedMarketSnapshots: number;
   expiredPendingSignals: number;
   deletedPendingSignals: number;
+  orphanedEngineRevisions: number;
 }
 
 export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
@@ -452,6 +469,7 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       orphanedMarketSnapshots: 0,
       expiredPendingSignals: 0,
       deletedPendingSignals: 0,
+      orphanedEngineRevisions: 0,
     };
   }
   await ensureDatabase();
@@ -541,6 +559,12 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
         AND COALESCE(resolved_at, created_at) < NOW() - (LEAST(${retention.experimentRetentionDays}, 30) * INTERVAL '1 day')
       RETURNING id
     `;
+    const orphanedEngineRevisions = await transaction`
+      DELETE FROM engine_revisions revision
+      WHERE revision.created_at < NOW() - INTERVAL '1 day'
+        AND NOT EXISTS (SELECT 1 FROM engine_runs run WHERE run.revision_id = revision.id)
+      RETURNING id
+    `;
     return {
       archivedDailySnapshots,
       expiredRuns: expiredRuns.length,
@@ -552,6 +576,7 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       orphanedMarketSnapshots: orphanedMarketSnapshots.length,
       expiredPendingSignals: expiredPendingSignals.length,
       deletedPendingSignals: deletedPendingSignals.length,
+      orphanedEngineRevisions: orphanedEngineRevisions.length,
     };
   });
 }

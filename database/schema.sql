@@ -69,6 +69,18 @@ CREATE TABLE IF NOT EXISTS strategy_experiments (
   configuration JSONB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS engine_revisions (
+  id BIGSERIAL PRIMARY KEY,
+  experiment_id TEXT NOT NULL REFERENCES strategy_experiments(experiment_id) ON DELETE CASCADE,
+  engine_id TEXT NOT NULL,
+  engine_version TEXT NOT NULL,
+  policy_revision TEXT NOT NULL,
+  config_revision TEXT NOT NULL,
+  code_sha TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (experiment_id, engine_id, policy_revision, config_revision)
+);
+
 CREATE TABLE IF NOT EXISTS shared_market_snapshots (
   id BIGSERIAL PRIMARY KEY,
   cycle_key TEXT NOT NULL UNIQUE,
@@ -87,6 +99,7 @@ CREATE TABLE IF NOT EXISTS engine_runs (
   snapshot_id BIGINT NOT NULL REFERENCES shared_market_snapshots(id) ON DELETE CASCADE,
   engine_id TEXT NOT NULL,
   engine_version TEXT NOT NULL,
+  revision_id BIGINT REFERENCES engine_revisions(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   completed_at TIMESTAMPTZ,
@@ -176,6 +189,8 @@ CREATE TABLE IF NOT EXISTS engine_pending_signals (
   resolution_reason TEXT
 );
 
+ALTER TABLE engine_runs ADD COLUMN IF NOT EXISTS revision_id BIGINT;
+
 CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC);
 CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC);
@@ -183,6 +198,7 @@ CREATE INDEX IF NOT EXISTS macro_snapshots_collected_idx ON macro_snapshots(coll
 CREATE INDEX IF NOT EXISTS daily_portfolio_snapshots_captured_idx ON daily_portfolio_snapshots(captured_at DESC);
 CREATE INDEX IF NOT EXISTS shared_market_snapshots_captured_idx ON shared_market_snapshots(captured_at DESC);
 CREATE INDEX IF NOT EXISTS engine_runs_experiment_idx ON engine_runs(experiment_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS engine_revisions_experiment_idx ON engine_revisions(experiment_id, engine_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS engine_equity_experiment_idx ON engine_equity_snapshots(experiment_id, engine_id, captured_at);
 CREATE INDEX IF NOT EXISTS engine_orders_experiment_idx ON engine_orders(experiment_id, engine_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS engine_pending_signals_active_idx

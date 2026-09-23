@@ -18,7 +18,6 @@ const config = {
   minBearReboundScore: 0.62,
   estimatedSlippagePct: 0.03,
   maxMarketSlippagePct: 0.2,
-  minTradableRangeToCostRatio: 2.5,
   maxPortfolioDrawdownPct: 3,
   maxCompletedOrders24h: 8,
   maxBuysPerCycle: 2,
@@ -151,7 +150,7 @@ describe("deterministic execution risk gates", () => {
     expect(plan.reason).toContain("drawdown");
   });
 
-  it("blocks a buy whose tradable range is too small for round-trip costs", () => {
+  it("does not duplicate model economics with a second ATR-to-cost hard gate", () => {
     const plan = createExecutionPlan(
       decision("buy"),
       { ...market, atr_14_pct: 0.2 },
@@ -160,7 +159,6 @@ describe("deterministic execution risk gates", () => {
       config,
       context,
     );
-    expect(plan.allowed).toBe(false);
-    expect(plan.reason).toContain("ATR-to-cost");
+    expect(plan.allowed).toBe(true);
   });
 });

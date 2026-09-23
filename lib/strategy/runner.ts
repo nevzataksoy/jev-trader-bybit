@@ -13,6 +13,7 @@ import type {
 import {
   beginEngineRun,
   completeEngineRun,
+  ensureEngineRevision,
   failEngineRun,
   getPaperTradingState,
   savePaperEquitySnapshot,
@@ -60,7 +61,15 @@ export async function runPaperEngineCycle(
   shared: SharedEngineCycleContext,
 ): Promise<PaperEngineCycleResult> {
   const engine = getStrategyEngine(engineId);
-  await beginEngineRun(shared.experimentId, shared.cycleKey, shared.snapshotId, engine.id, engine.version);
+  const revisionId = await ensureEngineRevision({
+    experimentId: shared.experimentId,
+    engineId: engine.id,
+    engineVersion: engine.version,
+    policyRevision: engine.policyRevision ?? "legacy",
+    configRevision: engine.configRevision ?? "legacy",
+    codeSha: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null,
+  });
+  await beginEngineRun(shared.experimentId, shared.cycleKey, shared.snapshotId, engine.id, engine.version, revisionId);
   try {
     const paper = await getPaperTradingState(
       shared.experimentId,
@@ -95,7 +104,22 @@ export async function runPaperEngineCycle(
     for (const decision of engine.orderDecisions(result.decisions)) {
       const symbol = SYMBOLS[decision.asset];
       if (decision.action === "buy" && buyCount >= trading.maxBuysPerCycle) {
-        executions.push({ asset: decision.asset, symbol, action: decision.action, status: "skipped", reason: "A higher-ranked paper buy consumed this cycle's exposure budget." });
+        executions.push({
+          asset: decision.asset,
+          symbol,
+          action: decision.action,
+          status: "skipped",
+          reason: "A higher-ranked paper buy consumed this cycle's exposure budget.",
+          riskMetrics: {
+            roundTripCostPct: decision.roundTripCostPct,
+            atrPct: shared.indicators[decision.asset].atr_14_pct,
+            atrToCostRatio: decision.roundTripCostPct
+              ? shared.indicators[decision.asset].atr_14_pct / decision.roundTripCostPct
+              : undefined,
+            targetDistancePct: decision.targetDistancePct,
+            expectedNetEdgePct: decision.expectedNetEdgePct,
+          },
+        });
         continue;
       }
       const strategyIntent = engine.planExecution(decision, {
@@ -121,6 +145,15 @@ export async function runPaperEngineCycle(
           action: decision.action,
           status: decision.action === "hold" ? "held" : "skipped",
           reason: plan.reason,
+          riskMetrics: {
+            roundTripCostPct: decision.roundTripCostPct,
+            atrPct: shared.indicators[decision.asset].atr_14_pct,
+            atrToCostRatio: decision.roundTripCostPct
+              ? shared.indicators[decision.asset].atr_14_pct / decision.roundTripCostPct
+              : undefined,
+            targetDistancePct: decision.targetDistancePct,
+            expectedNetEdgePct: decision.expectedNetEdgePct,
+          },
         });
         continue;
       }
@@ -137,7 +170,18 @@ export async function runPaperEngineCycle(
         capturedAt: shared.capturedAt,
         estimatedSlippagePct: trading.estimatedSlippagePct,
       });
-      executions.push(execution);
+      executions.push({
+        ...execution,
+        riskMetrics: {
+          roundTripCostPct: decision.roundTripCostPct,
+          atrPct: shared.indicators[decision.asset].atr_14_pct,
+          atrToCostRatio: decision.roundTripCostPct
+            ? shared.indicators[decision.asset].atr_14_pct / decision.roundTripCostPct
+            : undefined,
+          targetDistancePct: decision.targetDistancePct,
+          expectedNetEdgePct: decision.expectedNetEdgePct,
+        },
+      });
       if (execution.status === "confirmed") {
         const cash = workingBalances.find((balance) => balance.coin === "USDT");
         const asset = workingBalances.find((balance) => balance.coin === decision.asset);

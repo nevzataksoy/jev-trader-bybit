@@ -74,6 +74,21 @@ const market = {
   realized_volatility_24h_pct: 2,
   volume_ratio_20: 1,
   countertrend_rebound_score: 0.8,
+  support_zone_low: 98.5,
+  support_zone_high: 99.5,
+  support_strength: 0.8,
+  resistance_zone_low: 101.5,
+  resistance_zone_high: 102.5,
+  resistance_strength: 0.8,
+  distance_to_support_pct: 0.5,
+  distance_to_resistance_pct: 1.5,
+  bid_wall_strength: 0.7,
+  ask_wall_strength: 0.2,
+  bid_wall_persistence: 3,
+  ask_wall_persistence: 1,
+  trade_flow_imbalance: 0.15,
+  long_squeeze_risk: 0.1,
+  short_squeeze_risk: 0.2,
 } as MarketIndicatorState;
 
 const flatPosition = {
@@ -112,5 +127,19 @@ describe("Model2 V2 watch economics", () => {
     expect(decision.blockedBy).toContain("PENDING_RETEST");
     expect(decision.signalState).toBe("pending");
     expect(decision.targetAllocationPct).toBe(0);
+    expect(decision.targetDistancePct).toBeCloseTo(1.5);
+    expect(decision.roundTripCostPct).toBeGreaterThan(0);
+  });
+
+  it("blocks an entry whose structural resistance room cannot cover costs", () => {
+    const judgments = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, jev()])) as Record<TradeAsset, JevAssetJudgments>;
+    const rotations = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, rotation()])) as Record<TradeAsset, RotationAssetJudgment>;
+    const tightMarket = { ...market, distance_to_resistance_pct: 0.2, resistance_zone_low: 100.2 };
+    const indicators = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, tightMarket])) as Record<TradeAsset, MarketIndicatorState>;
+    const positions = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, { ...flatPosition, asset }])) as Record<TradeAsset, PositionContext>;
+    const fees = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, 0.1])) as Record<TradeAsset, number>;
+    const [decision] = buildDecisions(judgments, rotations, portfolio, indicators, positions, fees, config);
+    expect(decision.blockedBy).toContain("TARGET_ROOM_LOW");
+    expect(decision.action).toBe("hold");
   });
 });

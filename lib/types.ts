@@ -29,6 +29,8 @@ export type DecisionBlocker =
   | "USDT_RESERVE"
   | "ASSET_ALLOCATION_CAP"
   | "ALLOCATION_DEADBAND"
+  | "NO_ALLOCATION_INTENT"
+  | "TARGET_ROOM_LOW"
   | "MAX_BUYS_PER_CYCLE"
   | "STALE_DATA";
 export type DecisionSignalState = "none" | "pending" | "confirmed" | "expired" | "invalidated";
@@ -82,6 +84,11 @@ export interface MarketIndicatorState {
   rsi_14: number;
   atr_14: number;
   atr_14_pct: number;
+  atr_15m_percentile?: number;
+  atr_1h_pct?: number;
+  atr_1h_percentile?: number;
+  atr_4h_pct?: number;
+  atr_4h_percentile?: number;
   bb_upper: number;
   bb_lower: number;
   bb_width_pct: number;
@@ -106,6 +113,14 @@ export interface MarketIndicatorState {
   channel_7d_high: number;
   channel_7d_low: number;
   channel_7d_position: number;
+  support_zone_low?: number;
+  support_zone_high?: number;
+  support_strength?: number;
+  resistance_zone_low?: number;
+  resistance_zone_high?: number;
+  resistance_strength?: number;
+  distance_to_support_pct?: number;
+  distance_to_resistance_pct?: number;
   distance_to_24h_high_atr: number;
   distance_to_24h_low_atr: number;
   breakout_24h_pct: number;
@@ -125,6 +140,14 @@ export interface MarketIndicatorState {
   bid_depth_50_usdt: number;
   ask_depth_50_usdt: number;
   depth_ratio: number;
+  bid_wall_price?: number;
+  ask_wall_price?: number;
+  bid_wall_distance_pct?: number;
+  ask_wall_distance_pct?: number;
+  bid_wall_strength?: number;
+  ask_wall_strength?: number;
+  bid_wall_persistence?: number;
+  ask_wall_persistence?: number;
   taker_buy_ratio: number | null;
   trade_flow_imbalance: number | null;
   trade_flow_window_seconds: number | null;
@@ -132,6 +155,8 @@ export interface MarketIndicatorState {
   open_interest_change_1h_pct: number | null;
   open_interest_change_4h_pct: number | null;
   funding_rate_latest_pct: number | null;
+  long_squeeze_risk?: number;
+  short_squeeze_risk?: number;
   data_quality: "complete" | "spot_only";
   mamis_phase: MamisPhase;
   mamis_confidence: number;
@@ -262,6 +287,15 @@ export interface JevDecision {
   blockedBy?: DecisionBlocker[];
   readinessScore?: number;
   signalState?: DecisionSignalState;
+  grossExpectedEdgePct?: number;
+  successProbability?: number;
+  roundTripCostPct?: number;
+  targetDistancePct?: number;
+  invalidationDistancePct?: number;
+  rewardRiskRatio?: number;
+  rotationAction?: string;
+  rotationSuitability?: string;
+  rotationThesisHealth?: string;
   judgments: JevAssetJudgments;
 }
 
@@ -320,6 +354,13 @@ export interface BotExecutionResult {
   orderLinkId?: string;
   filledQuantity?: number;
   filledValueUsdt?: number;
+  riskMetrics?: {
+    roundTripCostPct?: number;
+    atrPct?: number;
+    atrToCostRatio?: number;
+    targetDistancePct?: number;
+    expectedNetEdgePct?: number;
+  };
 }
 
 export interface BotRunSummary {

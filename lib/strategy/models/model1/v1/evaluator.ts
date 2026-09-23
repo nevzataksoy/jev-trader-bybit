@@ -53,6 +53,10 @@ function semanticCandidate(candidate: BlindCandidateNumericState) {
         : candidate.trend.trend_efficiency_4h <= 0.3 ? "noisy and mean-reverting" : "mixed directional efficiency",
       structure: {
         prior_day_channel: channel(candidate.range_and_breakout.channel_24h_position),
+        support_distance_pct: candidate.range_and_breakout.support_distance_pct,
+        support_strength: candidate.range_and_breakout.support_strength,
+        resistance_distance_pct: candidate.range_and_breakout.resistance_distance_pct,
+        resistance_strength: candidate.range_and_breakout.resistance_strength,
         prior_three_day_channel: channel(candidate.range_and_breakout.channel_3d_position),
         prior_seven_day_channel: channel(candidate.range_and_breakout.channel_7d_position),
         swings: candidate.trend.structure_12h,
@@ -74,8 +78,18 @@ function semanticCandidate(candidate: BlindCandidateNumericState) {
       flow: candidate.execution.trade_flow_imbalance,
       resting_liquidity_imbalance: candidate.execution.orderbook_imbalance,
       depth_ratio: candidate.execution.depth_ratio,
-      cost_to_range: candidate.execution.atr_to_cost_ratio >= 5
-        ? "favorable" : candidate.execution.atr_to_cost_ratio >= 2.5 ? "adequate" : "costly",
+      round_trip_cost_pct: candidate.execution.round_trip_cost_pct,
+      local_range_to_cost_ratio: candidate.execution.atr_to_cost_ratio,
+      bid_wall: {
+        distance_pct: candidate.execution.bid_wall_distance_pct,
+        strength: candidate.execution.bid_wall_strength,
+        persistence: candidate.execution.bid_wall_persistence,
+      },
+      ask_wall: {
+        distance_pct: candidate.execution.ask_wall_distance_pct,
+        strength: candidate.execution.ask_wall_strength,
+        persistence: candidate.execution.ask_wall_persistence,
+      },
       provenance: candidate.execution.microstructure_provenance,
     },
     leveraged_positioning: candidate.leveraged_positioning,
@@ -100,11 +114,11 @@ function regimeQuestion(slot: BlindSlot) {
 }
 
 function setupQuestion(slot: BlindSlot) {
-  return choice({ objective: `Select the best long-only setup supported by state.candidates.${slot}.`, constraints: ["Select none without positive executable evidence.", "A range entry belongs near a lower boundary.", "A breakout needs participation.", "Do not output an order."] }, { trend_pullback: "Orderly pullback in an intact rise.", upside_breakout: "Accepted upper-boundary break.", range_reversion: "Supported lower-boundary mean reversion.", bear_rebound: "Confirmed tactical rebound in a decline.", reduce: "Existing long thesis is deteriorating.", none: "No executable setup." });
+  return choice({ objective: `Select the best long-only setup supported by state.candidates.${slot}.`, constraints: ["Select none without positive executable evidence.", "Prefer entries near evidence-backed support with meaningful room to resistance.", "A range entry belongs near a lower boundary.", "A breakout needs participation and acceptance through resistance.", "Use order flow and persistent liquidity walls as confirmation, not as standalone truth.", "Do not output an order."] }, { trend_pullback: "Orderly pullback in an intact rise.", upside_breakout: "Accepted upper-boundary break.", range_reversion: "Supported lower-boundary mean reversion.", bear_rebound: "Confirmed tactical rebound in a decline.", reduce: "Existing long thesis is deteriorating.", none: "No executable setup." });
 }
 
 function readinessQuestion(slot: BlindSlot) {
-  return choice({ objective: `Judge entry readiness for state.candidates.${slot}.`, constraints: ["Closed evidence must confirm enter_now.", "Do not infer identity."] }, { enter_now: "Confirmed now.", wait_close: "Needs another close.", wait_retest: "Needs a retest.", no_entry: "No acceptable entry." });
+  return choice({ objective: `Judge entry readiness for state.candidates.${slot}.`, constraints: ["Closed evidence must confirm enter_now.", "Use support/retest location and resistance acceptance when judging timing.", "Do not infer identity."] }, { enter_now: "Confirmed now.", wait_close: "Needs another close.", wait_retest: "Needs a retest.", no_entry: "No acceptable entry." });
 }
 
 function directionQuestion(slot: BlindSlot) {

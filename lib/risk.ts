@@ -83,14 +83,6 @@ export function createExecutionPlan(
   if (market.realized_volatility_24h_pct > config.maxDailyVolatilityPct) {
     return deny(`Daily realized volatility ${market.realized_volatility_24h_pct.toFixed(2)}% is above the risk ceiling.`);
   }
-  const roundTripCostPct = context.fee.taker_fee_pct * 2
-    + market.bid_ask_spread_pct
-    + config.estimatedSlippagePct * 2;
-  const rangeToCostRatio = market.atr_14_pct / Math.max(roundTripCostPct, 0.0001);
-  if (rangeToCostRatio < config.minTradableRangeToCostRatio) {
-    return deny(`ATR-to-cost ratio ${rangeToCostRatio.toFixed(2)} is below ${config.minTradableRangeToCostRatio.toFixed(2)}.`);
-  }
-
   const usdtBalance = balances.find((balance) => balance.coin === "USDT");
   const freeUsdt = usdtBalance?.free ?? 0;
   if (freeUsdt < config.minTradeUsdt || totalPortfolioUsdt <= 0) return deny("Available USDT is below the minimum trade amount.");

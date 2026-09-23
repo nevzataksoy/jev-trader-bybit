@@ -23,6 +23,12 @@ function judgments(action: RotationAssetJudgment["action"]["choice"]) {
 
 const indicators = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, {
   channel_24h_position: 0.5,
+  atr_14_pct: 1,
+  atr_14_1h_pct: 1.5,
+  support_distance_pct: 0.2,
+  support_strength: 0.7,
+  resistance_zone_high: 110,
+  last_price: 100,
 } as MarketIndicatorState])) as Record<TradeAsset, MarketIndicatorState>;
 
 describe("Model2 V2 rotation normalization", () => {

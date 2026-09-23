@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StrategyEngine } from "./types";
 import { getEngineRevision } from "./revision";
 
@@ -15,8 +15,23 @@ function engine(config: unknown): StrategyEngine {
   };
 }
 
-afterEach(() => {
+const originalVercelSha = process.env.VERCEL_GIT_COMMIT_SHA;
+const originalGithubSha = process.env.GITHUB_SHA;
+const originalSourceRevision = process.env.SOURCE_REVISION;
+
+beforeEach(() => {
+  delete process.env.VERCEL_GIT_COMMIT_SHA;
+  delete process.env.GITHUB_SHA;
   delete process.env.SOURCE_REVISION;
+});
+
+afterEach(() => {
+  if (originalVercelSha === undefined) delete process.env.VERCEL_GIT_COMMIT_SHA;
+  else process.env.VERCEL_GIT_COMMIT_SHA = originalVercelSha;
+  if (originalGithubSha === undefined) delete process.env.GITHUB_SHA;
+  else process.env.GITHUB_SHA = originalGithubSha;
+  if (originalSourceRevision === undefined) delete process.env.SOURCE_REVISION;
+  else process.env.SOURCE_REVISION = originalSourceRevision;
 });
 
 describe("engine revision identity", () => {

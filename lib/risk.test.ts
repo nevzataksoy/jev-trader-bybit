@@ -151,7 +151,7 @@ describe("deterministic execution risk gates", () => {
     expect(plan.reason).toContain("drawdown");
   });
 
-  it("blocks a buy whose tradable range is too small for round-trip costs", () => {
+  it("keeps ATR-to-cost as a diagnostic while the model owns trade economics", () => {
     const plan = createExecutionPlan(
       decision("buy"),
       { ...market, atr_14_pct: 0.2 },
@@ -160,7 +160,8 @@ describe("deterministic execution risk gates", () => {
       config,
       context,
     );
-    expect(plan.allowed).toBe(false);
-    expect(plan.reason).toContain("ATR-to-cost");
+    expect(plan.allowed).toBe(true);
+    expect(plan.diagnostics?.atrToCostRatio).toBeLessThan(2.5);
+    expect(plan.reason).toContain("diagnostic only");
   });
 });

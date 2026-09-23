@@ -88,6 +88,106 @@ function channelState(candles: Candle[], lastPrice: number, atr: number) {
   };
 }
 
+function rollingAtrProfile(candles: Candle[], period = 14) {
+  if (candles.length <= period) return { currentPct: 0, percentile: 0.5 };
+  const ranges = candles.slice(1).map((candle, index) => Math.max(
+    candle.high - candle.low,
+    Math.abs(candle.high - candles[index].close),
+    Math.abs(candle.low - candles[index].close),
+  ));
+  let atr = ranges.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+  const percentages: number[] = [];
+  const firstClose = candles[period].close;
+  if (firstClose > 0) percentages.push(atr / firstClose * 100);
+  for (let index = period; index < ranges.length; index += 1) {
+    atr = (atr * (period - 1) + ranges[index]) / period;
+    const close = candles[index + 1].close;
+    if (close > 0) percentages.push(atr / close * 100);
+  }
+  const currentPct = percentages.at(-1) ?? 0;
+  return { currentPct, percentile: percentileRank(percentages, currentPct) };
+}
+
+type WeightedLevel = { price: number; weight: number };
+
+function pivotLevels(candles: Candle[], kind: "support" | "resistance", weight: number, lookback: number) {
+  const levels: WeightedLevel[] = [];
+  const start = Math.max(2, candles.length - lookback);
+  for (let index = start; index < candles.length - 2; index += 1) {
+    const value = kind === "support" ? candles[index].low : candles[index].high;
+    const neighbors = [candles[index - 2], candles[index - 1], candles[index + 1], candles[index + 2]]
+      .map((candle) => kind === "support" ? candle.low : candle.high);
+    const isPivot = kind === "support"
+      ? neighbors.every((candidate) => value <= candidate)
+      : neighbors.every((candidate) => value >= candidate);
+    if (isPivot) levels.push({ price: value, weight });
+  }
+  return levels;
+}
+
+function clusterLevels(levels: WeightedLevel[], tolerance: number) {
+  const sorted = [...levels].sort((left, right) => left.price - right.price);
+  const clusters: Array<{ price: number; weight: number; touches: number }> = [];
+  for (const level of sorted) {
+    const cluster = clusters.find((candidate) => Math.abs(candidate.price - level.price) <= tolerance);
+    if (!cluster) {
+      clusters.push({ price: level.price, weight: level.weight, touches: 1 });
+      continue;
+    }
+    const nextWeight = cluster.weight + level.weight;
+    cluster.price = (cluster.price * cluster.weight + level.price * level.weight) / nextWeight;
+    cluster.weight = nextWeight;
+    cluster.touches += 1;
+  }
+  return clusters;
+}
+
+function buildStructureZones(
+  candles: Candle[],
+  hourlyCandles: Candle[],
+  fourHourlyCandles: Candle[],
+  lastPrice: number,
+  atr: number,
+) {
+  const tolerance = Math.max(atr * 0.6, lastPrice * 0.0015);
+  const supportLevels = [
+    ...pivotLevels(candles, "support", 1, 160),
+    ...pivotLevels(hourlyCandles, "support", 1.7, 120),
+    ...pivotLevels(fourHourlyCandles, "support", 2.4, 90),
+  ];
+  const resistanceLevels = [
+    ...pivotLevels(candles, "resistance", 1, 160),
+    ...pivotLevels(hourlyCandles, "resistance", 1.7, 120),
+    ...pivotLevels(fourHourlyCandles, "resistance", 2.4, 90),
+  ];
+  const supports = clusterLevels(supportLevels, tolerance)
+    .filter((level) => level.price <= lastPrice + tolerance)
+    .sort((left, right) => right.price - left.price);
+  const resistances = clusterLevels(resistanceLevels, tolerance)
+    .filter((level) => level.price >= lastPrice - tolerance)
+    .sort((left, right) => left.price - right.price);
+  const fallbackSupport = Math.min(...hourlyCandles.slice(-72).map((candle) => candle.low));
+  const fallbackResistance = Math.max(...hourlyCandles.slice(-72).map((candle) => candle.high));
+  const support = supports[0] ?? { price: fallbackSupport, weight: 1, touches: 1 };
+  const resistance = resistances.find((level) => level.price > support.price + tolerance)
+    ?? { price: fallbackResistance, weight: 1, touches: 1 };
+  const halfWidth = Math.max(atr * 0.35, lastPrice * 0.00075);
+  const supportLow = support.price - halfWidth;
+  const supportHigh = support.price + halfWidth;
+  const resistanceLow = resistance.price - halfWidth;
+  const resistanceHigh = resistance.price + halfWidth;
+  return {
+    support_zone_low: round(supportLow, 4),
+    support_zone_high: round(supportHigh, 4),
+    support_strength: round(clamp((support.weight + support.touches) / 12), 4),
+    resistance_zone_low: round(resistanceLow, 4),
+    resistance_zone_high: round(resistanceHigh, 4),
+    resistance_strength: round(clamp((resistance.weight + resistance.touches) / 12), 4),
+    distance_to_support_pct: round(Math.max(0, (lastPrice - supportHigh) / lastPrice * 100), 4),
+    distance_to_resistance_pct: round(Math.max(0, (resistanceLow - lastPrice) / lastPrice * 100), 4),
+  };
+}
+
 function percentileRank(values: number[], value: number) {
   if (values.length === 0) return 0.5;
   return values.filter((item) => item <= value).length / values.length;
@@ -327,13 +427,22 @@ export function stabilizeMamisPhases(
   current: Record<TradeAsset, MarketIndicatorState>,
   previous: Record<TradeAsset, MarketIndicatorState> | null,
 ) {
-  if (!previous) return current;
   return Object.fromEntries((Object.keys(current) as TradeAsset[]).map((asset) => {
     const latest = current[asset];
-    const prior = previous[asset];
-    if (!prior?.mamis_phase || latest.mamis_phase === prior.mamis_phase || latest.mamis_confidence >= 0.75) return [asset, latest];
-    return [asset, {
+    const prior = previous?.[asset];
+    const persistent = (currentPrice: number | undefined, priorPrice: number | undefined, priorCount: number | undefined) => {
+      if (!currentPrice || !priorPrice) return currentPrice ? 1 : 0;
+      const distancePct = Math.abs(currentPrice / priorPrice - 1) * 100;
+      return distancePct <= 0.2 ? Math.min(96, (priorCount ?? 1) + 1) : 1;
+    };
+    const enriched = {
       ...latest,
+      bid_wall_persistence: persistent(latest.bid_wall_price, prior?.bid_wall_price, prior?.bid_wall_persistence),
+      ask_wall_persistence: persistent(latest.ask_wall_price, prior?.ask_wall_price, prior?.ask_wall_persistence),
+    };
+    if (!prior?.mamis_phase || latest.mamis_phase === prior.mamis_phase || latest.mamis_confidence >= 0.75) return [asset, enriched];
+    return [asset, {
+      ...enriched,
       mamis_phase: prior.mamis_phase,
       mamis_confidence: round(Math.max(0.5, prior.mamis_confidence - 0.1), 3),
       mamis_evidence: [...latest.mamis_evidence, "phase transition held for one more cycle by hysteresis"],
@@ -418,6 +527,10 @@ export function buildTechnicalState(
   const channel24h = channelState(candles.slice(-97, -1), lastPrice, atr);
   const channel3d = channelState(hourlyCandles.slice(-73, -1), lastPrice, atr);
   const channel7d = channelState(hourlyCandles.slice(-169, -1), lastPrice, atr);
+  const structureZones = buildStructureZones(candles, hourlyCandles, fourHourlyCandles, lastPrice, atr);
+  const atr15mProfile = rollingAtrProfile(candles);
+  const atr1hProfile = rollingAtrProfile(hourlyCandles);
+  const atr4hProfile = rollingAtrProfile(fourHourlyCandles);
   const lastCandle = candles.at(-1)!;
   const mamis = classifyMamisPhase({
     regime: regime.regime,
@@ -447,6 +560,9 @@ export function buildTechnicalState(
     ema_50: round(ema50.at(-1)!, 4), ema_200: round(ema200.at(-1)!, 4),
     ema_50_slope_3h_pct: round(((ema50.at(-1)! / ema50.at(-13)!) - 1) * 100, 4),
     rsi_14: round(rsi, 3), atr_14: round(atr, 4), atr_14_pct: round((atr / closes.at(-1)!) * 100, 4),
+    atr_15m_percentile: round(atr15mProfile.percentile, 4),
+    atr_1h_pct: round(atr1hProfile.currentPct, 4), atr_1h_percentile: round(atr1hProfile.percentile, 4),
+    atr_4h_pct: round(atr4hProfile.currentPct, 4), atr_4h_percentile: round(atr4hProfile.percentile, 4),
     bb_upper: round(bollinger.upper, 4), bb_lower: round(bollinger.lower, 4),
     bb_width_pct: round(bollinger.widthPct, 3), bb_position: round(bollinger.position, 4),
     macd_hist: round(macdHistogram, 6),
@@ -464,6 +580,7 @@ export function buildTechnicalState(
     channel_3d_position: round(channel3d.position, 4),
     channel_7d_high: round(channel7d.high, 4), channel_7d_low: round(channel7d.low, 4),
     channel_7d_position: round(channel7d.position, 4),
+    ...structureZones,
     distance_to_24h_high_atr: round(channel24h.distanceToHighAtr, 4),
     distance_to_24h_low_atr: round(channel24h.distanceToLowAtr, 4),
     breakout_24h_pct: round(channel24h.breakoutPct, 4),
@@ -509,6 +626,17 @@ export class MarketDataAggregator {
     const { sourceTime: tickerSourceTime, ...tickerState } = ticker;
     const { sourceTime: orderbookSourceTime, ...orderbookState } = orderbook;
     const { lastClosed15mAt, ...technicalState } = technical;
+    const derivativesAvailable = derivatives.open_interest_change_1h_pct !== null
+      || derivatives.open_interest_change_4h_pct !== null
+      || derivatives.funding_rate_latest_pct !== null;
+    const oi1h = derivatives.open_interest_change_1h_pct ?? 0;
+    const funding = derivatives.funding_rate_latest_pct ?? 0;
+    const longSqueezeRisk = derivativesAvailable
+      ? clamp(Math.max(0, oi1h) / 3 * 0.4 + Math.max(0, -technical.return_1h_pct) / 1.5 * 0.4 + Math.max(0, funding) / 0.05 * 0.2)
+      : 0;
+    const shortSqueezeRisk = derivativesAvailable
+      ? clamp(Math.max(0, oi1h) / 3 * 0.4 + Math.max(0, technical.return_1h_pct) / 1.5 * 0.4 + Math.max(0, -funding) / 0.05 * 0.2)
+      : 0;
     const collectedTime = Date.now();
     assertFreshMarketTimestamps(tickerSourceTime, orderbookSourceTime, lastClosed15mAt, collectedTime);
     const collectedAt = new Date(collectedTime).toISOString();
@@ -522,6 +650,8 @@ export class MarketDataAggregator {
       orderbook_at: new Date(orderbookSourceTime).toISOString(),
       last_closed_15m_at: new Date(lastClosed15mAt).toISOString(),
       ...tickerState, ...technicalState, ...orderbookState, ...derivatives, ...tradeFlow,
+      long_squeeze_risk: round(longSqueezeRisk, 4),
+      short_squeeze_risk: round(shortSqueezeRisk, 4),
       relative_strength_vs_btc_24h_pct: 0,
       countertrend_rebound_score: round(reboundScore, 4),
       data_quality: derivatives.open_interest_usdt_estimate === null ? "spot_only" : "complete",
@@ -561,7 +691,7 @@ export class MarketDataAggregator {
   }
 
   private async getOrderbookState(symbol: string) {
-    const response = await this.client.getOrderbook({ category: "spot", symbol, limit: 50 });
+    const response = await this.client.getOrderbook({ category: "spot", symbol, limit: 200 });
     assertResponse(response, `Orderbook request for ${symbol}`);
     const bids = response.result.b;
     const asks = response.result.a;
@@ -569,9 +699,22 @@ export class MarketDataAggregator {
     const bestBid = Number(bids[0][0]);
     const bestAsk = Number(asks[0][0]);
     const midpoint = (bestBid + bestAsk) / 2;
-    const totalBid = bids.reduce((sum, bid) => sum + Number(bid[0]) * Number(bid[1]), 0);
-    const totalAsk = asks.reduce((sum, ask) => sum + Number(ask[0]) * Number(ask[1]), 0);
+    const bidNotionals = bids.map((bid) => ({ price: Number(bid[0]), notional: Number(bid[0]) * Number(bid[1]) }));
+    const askNotionals = asks.map((ask) => ({ price: Number(ask[0]), notional: Number(ask[0]) * Number(ask[1]) }));
+    const first50Bids = bidNotionals.slice(0, 50);
+    const first50Asks = askNotionals.slice(0, 50);
+    const totalBid = first50Bids.reduce((sum, level) => sum + level.notional, 0);
+    const totalAsk = first50Asks.reduce((sum, level) => sum + level.notional, 0);
     const depth = totalBid + totalAsk;
+    const medianNotional = (levels: Array<{ notional: number }>) => {
+      const sorted = levels.map((level) => level.notional).filter(Number.isFinite).sort((left, right) => left - right);
+      return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+    };
+    const largestBid = [...bidNotionals].sort((left, right) => right.notional - left.notional)[0];
+    const largestAsk = [...askNotionals].sort((left, right) => right.notional - left.notional)[0];
+    const bidMedian = medianNotional(bidNotionals);
+    const askMedian = medianNotional(askNotionals);
+    const wallStrength = (largest: number, median: number) => median > 0 ? clamp((largest / median - 1) / 9) : 0;
     return {
       sourceTime: Number(response.result.cts || response.result.ts || response.time),
       bid_ask_spread_pct: round(((bestAsk - bestBid) / midpoint) * 100, 5),
@@ -579,6 +722,12 @@ export class MarketDataAggregator {
       bid_depth_50_usdt: round(totalBid, 2),
       ask_depth_50_usdt: round(totalAsk, 2),
       depth_ratio: round(totalAsk > 0 ? totalBid / totalAsk : 0, 4),
+      bid_wall_price: round(largestBid?.price ?? bestBid, 4),
+      ask_wall_price: round(largestAsk?.price ?? bestAsk, 4),
+      bid_wall_distance_pct: round(midpoint > 0 ? Math.max(0, (midpoint - (largestBid?.price ?? bestBid)) / midpoint * 100) : 0, 4),
+      ask_wall_distance_pct: round(midpoint > 0 ? Math.max(0, ((largestAsk?.price ?? bestAsk) - midpoint) / midpoint * 100) : 0, 4),
+      bid_wall_strength: round(wallStrength(largestBid?.notional ?? 0, bidMedian), 4),
+      ask_wall_strength: round(wallStrength(largestAsk?.notional ?? 0, askMedian), 4),
     };
   }
 

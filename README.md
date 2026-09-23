@@ -26,18 +26,17 @@ lib/strategy/models/
 │       ├── evaluator.ts
 │       ├── policy.ts
 │       ├── confirmation.ts
-│       ├── config.ts
-│       └── confirmation.test.ts
+│       └── config.ts
 └── model2/
-    └── v1/
+    ├── v1/   # historical baseline
+    └── v2/   # active rotation engine
         ├── index.ts
         ├── evaluator.ts
         ├── analysis.ts
         ├── normalizer.ts
         ├── policy.ts
         ├── confirmation.ts
-        ├── config.ts
-        └── confirmation.test.ts
+        └── config.ts
 ```
 
 Model sürümleri birbirini import edemez. Registry generator bu kuralı build öncesinde doğrular.
@@ -212,18 +211,17 @@ lib/strategy/models/
 │       ├── evaluator.ts
 │       ├── policy.ts
 │       ├── confirmation.ts
-│       ├── config.ts
-│       └── confirmation.test.ts
+│       └── config.ts
 └── model2/
-    └── v1/
+    ├── v1/   # historical baseline
+    └── v2/   # active rotation engine
         ├── index.ts
         ├── evaluator.ts
         ├── analysis.ts
         ├── normalizer.ts
         ├── policy.ts
         ├── confirmation.ts
-        ├── config.ts
-        └── confirmation.test.ts
+        └── config.ts
 ```
 
 A model version may not import another model family or version. The registry generator enforces this at build time.

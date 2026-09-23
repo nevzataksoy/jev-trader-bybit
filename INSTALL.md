@@ -67,8 +67,8 @@ Uygulama runtime sırasında da tabloları `CREATE TABLE IF NOT EXISTS` ile doğ
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_ENGINE_IDS=model1-v1,model2-v1
-AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+AB_ENGINE_IDS=model1-v1,model2-v2
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
 AB_INITIAL_CAPITAL_USDT=1000
 AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
@@ -78,7 +78,7 @@ A/B modunda gerçek exchange routing her durumda kapalıdır.
 
 ### 7. Platform safety değişkenleri
 
-Bunlar modellerin stratejik tercihleri değil, uygulamanın ortak hard limitleridir:
+Bunlar modellerin stratejik tercihleri değil, uygulamanın ortak hard limitleridir. ATR/maliyet oranı artık global hard gate değildir; model yapısal hedef alanı, invalidation riski ve gerçek round-trip maliyeti birlikte değerlendirir:
 
 ```env
 MIN_CONFIDENCE_THRESHOLD=0.72
@@ -90,7 +90,6 @@ MAX_DAILY_VOLATILITY_PCT=10
 MAX_SPREAD_PCT=0.25
 ESTIMATED_SLIPPAGE_PCT=0.03
 MAX_MARKET_SLIPPAGE_PCT=0.20
-MIN_TRADABLE_RANGE_TO_COST_RATIO=2.50
 MAX_PORTFOLIO_DRAWDOWN_PCT=3
 MAX_COMPLETED_ORDERS_24H=8
 MAX_BUYS_PER_CYCLE=2
@@ -138,7 +137,13 @@ MODEL2_V1_WAIT_RETEST_TTL_MINUTES=120
 
 Yeni bir model/version kendi prefix'li parametrelerini kendi `config.ts` dosyasında tanımlar.
 
-### 10. Retention ve cron
+### 10. Revision audit, counterfactual ve retention
+
+Aynı 42 günlük experiment içinde model kimlikleri korunur; davranış değişiklikleri `policyRevision/configRevision/sourceRevision` ile ayrıştırılır. `engine_policy_revisions` config snapshot'ını her 15 dakikada tekrar etmez; aynı revision yalnız bir kez tutulur. Platformun reddettiği BUY/SELL girişimleri sparse `engine_counterfactuals` tablosuna kaydedilir.
+
+Mevcut `/api/cron` her çevrimin sonunda `cleanupDatabase()` çalıştırır. Aynı cleanup counterfactual kayıtlarının +15m/+1h/+4h/+12h sonuçlarını mevcut shared snapshot'lardan doldurur, expired pending kayıtlarını çözer ve retention süresi aşılmış counterfactual/revision metadata'yı temizler. Ek cron veya manuel cleanup gerekmez.
+
+### 11. Retention ve cron
 
 ```env
 BOT_RUN_RETENTION_DAYS=45
@@ -157,7 +162,7 @@ cron-job.org ayarı:
 4. Time zone: `UTC`
 5. Header: `Authorization: Bearer YOUR_CRON_SECRET`
 
-### 11. Yerel doğrulama
+### 12. Yerel doğrulama
 
 ```bash
 npm run lint
@@ -169,17 +174,17 @@ npm run strategy:report
 
 Tarihsel local backtest/simulation komutları bu temiz projede bulunmaz.
 
-### 12. Vercel deploy sonrası kontrol sırası
+### 13. Vercel deploy sonrası kontrol sırası
 
 1. Neon entegrasyonunun bağlı olduğunu ve `DATABASE_URL` oluştuğunu doğrulayın.
 2. Vercel Production Environment Variables alanını güncel `.env.example` ile eşitleyin.
 3. Eski `model1-blind-*`, `model2-blind-*`, eski strategy parametreleri ve bütün `BACKTEST_*` değişkenlerini Vercel'den kaldırın.
-4. `AB_ENGINE_IDS=model1-v1,model2-v1` ve `AB_EXPERIMENT_ID=model1-v1-vs-model2-v1` kullanın.
+4. `AB_ENGINE_IDS=model1-v1,model2-v2` ve `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2` kullanın.
 5. İlk aşamada `TRADING_ENABLED=false`, `EXCHANGE_EXECUTION_ENGINE=none` bırakın.
 6. Deploy tamamlandıktan sonra `/api/health` çağırın.
 7. Yetkili bir `/api/cron` çağrısı yapın. DB tamamen boşsa bu çağrı runtime schema bootstrap'ını tetikleyebilir.
 8. `/api/state` yanıtının bağlı Bybit hesabı/platform durumunu, `/models` ve `/api/models/state` yanıtının ise A/B `engine_runs` / paper karar geçmişini temsil ettiğini doğrulayın. `/api/models/state` içindeki `activeEngines`, `availableEngines` ve deney motorları yalnız `model1-v1` ile `model2-v1` olmalıdır.
-9. DB'de `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots`, `engine_orders` tablolarının oluştuğunu kontrol edin.
+9. DB'de `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots`, `engine_orders`, `engine_policy_revisions`, `engine_counterfactuals` tablolarının oluştuğunu kontrol edin.
 10. cron-job.org Test Run yapın ve HTTP 200 doğrulayın.
 11. Birkaç çevrim boyunca Jev kararlarını, pending/confirmed akışını ve paper equity sonuçlarını gözlemleyin.
 12. A/B testi sırasında gerçek exchange routing'i açmayın.
@@ -249,8 +254,8 @@ Runtime initialization also uses `CREATE TABLE IF NOT EXISTS`. Vercel build itse
 ```env
 STRATEGY_RUN_MODE=ab_test
 EXCHANGE_EXECUTION_ENGINE=none
-AB_ENGINE_IDS=model1-v1,model2-v1
-AB_EXPERIMENT_ID=model1-v1-vs-model2-v1
+AB_ENGINE_IDS=model1-v1,model2-v2
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
 AB_INITIAL_CAPITAL_USDT=1000
 AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
@@ -264,7 +269,11 @@ Shared safety ceilings remain global. Strategy choices live under `MODEL1_V1_*` 
 
 Use `.env.example` as the canonical variable list.
 
-### 8. Cron
+### 8. Revision audit, retention and cron
+
+Keep the same 42-day experiment and engine ids while in-place policy changes are separated by `policyRevision/configRevision/sourceRevision`. Revision config is deduplicated in `engine_policy_revisions`. Only platform-rejected BUY/SELL attempts create sparse `engine_counterfactuals` rows.
+
+The existing `/api/cron` already calls `cleanupDatabase()` at the end of every 15-minute cycle. That same cleanup fills +15m/+1h/+4h/+12h counterfactual outcomes from shared snapshots and applies retention; no additional cron or manual cleanup is required.
 
 Configure cron-job.org:
 
@@ -291,12 +300,12 @@ Historical local backtest/simulation commands are intentionally not part of this
 1. Verify the Neon integration and `DATABASE_URL`.
 2. Synchronize Production Environment Variables with the current `.env.example`.
 3. Remove old `model1-blind-*`, `model2-blind-*`, old strategy variables and every `BACKTEST_*` variable.
-4. Set `AB_ENGINE_IDS=model1-v1,model2-v1`.
-5. Set `AB_EXPERIMENT_ID=model1-v1-vs-model2-v1`.
+4. Set `AB_ENGINE_IDS=model1-v1,model2-v2`.
+5. Set `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2`.
 6. Keep `TRADING_ENABLED=false` and `EXCHANGE_EXECUTION_ENGINE=none` initially.
 7. Verify `/api/health`.
 8. Send one authenticated `/api/cron` request; on an empty database this can trigger runtime schema bootstrap.
 9. Verify `/api/state` represents the configured Bybit account/platform surface while `/models` and `/api/models/state` represent A/B `engine_runs` and paper decision history. `activeEngines`, `availableEngines`, and the persisted experiment engines should contain only `model1-v1` and `model2-v1`.
-10. Confirm the experiment and engine tables exist in PostgreSQL.
+10. Confirm the experiment/engine tables plus `engine_policy_revisions` and `engine_counterfactuals` exist in PostgreSQL.
 11. Run cron-job.org Test Run and confirm HTTP 200.
 12. Observe multiple paper cycles before making any execution-mode change.

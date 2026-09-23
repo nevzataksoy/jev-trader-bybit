@@ -42,6 +42,28 @@ export interface PaperTradingState {
   totalPortfolioUsdt: number;
 }
 
+export interface EngineRevisionInput {
+  revisionId: string;
+  engineId: StrategyEngineId;
+  engineVersion: string;
+  policyRevision: string;
+  configRevision: string;
+  sourceRevision: string;
+  configSnapshot: unknown;
+}
+
+export interface CounterfactualAttemptInput {
+  experimentId: string;
+  cycleKey: string;
+  engineId: StrategyEngineId;
+  engineVersion: string;
+  revisionId: string;
+  decision: JevDecision;
+  market: MarketIndicatorState;
+  rejectionReason: string;
+  capturedAt: string;
+}
+
 export interface PaperOrderInput {
   experimentId: string;
   cycleKey: string;
@@ -223,21 +245,38 @@ export async function saveSharedMarketSnapshot(input: SharedSnapshotInput) {
   return Number(rows[0].id);
 }
 
+export async function registerEngineRevision(input: EngineRevisionInput) {
+  await ensureDatabase();
+  const sql = getSql();
+  await sql`
+    INSERT INTO engine_policy_revisions (
+      revision_id, engine_id, engine_version, policy_revision, config_revision,
+      source_revision, config_snapshot, created_at
+    ) VALUES (
+      ${input.revisionId}, ${input.engineId}, ${input.engineVersion}, ${input.policyRevision},
+      ${input.configRevision}, ${input.sourceRevision}, ${sql.json(asPostgresJson(input.configSnapshot))}, NOW()
+    )
+    ON CONFLICT (revision_id) DO NOTHING
+  `;
+}
+
 export async function beginEngineRun(
   experimentId: string,
   cycleKey: string,
   snapshotId: number,
   engineId: StrategyEngineId,
   engineVersion: string,
+  revisionId: string,
 ) {
   const sql = getSql();
   await sql`
     INSERT INTO engine_runs (
-      experiment_id, cycle_key, snapshot_id, engine_id, engine_version, status, started_at
-    ) VALUES (${experimentId}, ${cycleKey}, ${snapshotId}, ${engineId}, ${engineVersion}, 'running', NOW())
+      experiment_id, cycle_key, snapshot_id, engine_id, engine_version, revision_id, status, started_at
+    ) VALUES (${experimentId}, ${cycleKey}, ${snapshotId}, ${engineId}, ${engineVersion}, ${revisionId}, 'running', NOW())
     ON CONFLICT (experiment_id, cycle_key, engine_id) DO UPDATE SET
       snapshot_id = EXCLUDED.snapshot_id,
       engine_version = EXCLUDED.engine_version,
+      revision_id = EXCLUDED.revision_id,
       status = 'running',
       started_at = NOW(),
       completed_at = NULL,
@@ -358,6 +397,35 @@ export async function getPaperTradingState(
   };
 }
 
+export async function saveCounterfactualAttempt(input: CounterfactualAttemptInput) {
+  const sql = getSql();
+  const diagnostics = input.decision.diagnostics ?? {};
+  await sql`
+    INSERT INTO engine_counterfactuals (
+      experiment_id, cycle_key, engine_id, engine_version, revision_id, asset, action,
+      setup, readiness, confidence, reference_price, expected_net_edge_pct,
+      target_price, invalidation_price, diagnostics, rejection_reason, created_at
+    ) VALUES (
+      ${input.experimentId}, ${input.cycleKey}, ${input.engineId}, ${input.engineVersion},
+      ${input.revisionId}, ${input.decision.asset}, ${input.decision.action},
+      ${input.decision.selectedSetup}, ${input.decision.entryReadiness}, ${input.decision.confidence},
+      ${input.market.last_price}, ${input.decision.expectedNetEdgePct},
+      ${input.decision.diagnostics?.targetPrice ?? null}, ${input.decision.diagnostics?.invalidationPrice ?? null},
+      ${sql.json(asPostgresJson(diagnostics))}, ${input.rejectionReason.slice(0, 2_000)},
+      ${input.capturedAt}::timestamptz
+    )
+    ON CONFLICT (experiment_id, cycle_key, engine_id, asset, action) DO UPDATE SET
+      revision_id = EXCLUDED.revision_id,
+      confidence = EXCLUDED.confidence,
+      expected_net_edge_pct = EXCLUDED.expected_net_edge_pct,
+      target_price = EXCLUDED.target_price,
+      invalidation_price = EXCLUDED.invalidation_price,
+      diagnostics = EXCLUDED.diagnostics,
+      rejection_reason = EXCLUDED.rejection_reason,
+      updated_at = NOW()
+  `;
+}
+
 export async function simulatePaperOrder(input: PaperOrderInput): Promise<BotExecutionResult> {
   const sql = getSql();
   const symbol = input.market.symbol;
@@ -447,6 +515,7 @@ export async function simulatePaperOrder(input: PaperOrderInput): Promise<BotExe
       orderLinkId: orderId,
       filledQuantity: fill.quantity,
       filledValueUsdt: fill.grossValueUsdt,
+      executionDiagnostics: input.plan.diagnostics,
     } satisfies BotExecutionResult;
   });
 }

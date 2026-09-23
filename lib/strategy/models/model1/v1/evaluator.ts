@@ -60,6 +60,17 @@ function semanticCandidate(candidate: BlindCandidateNumericState) {
           ? "compressed" : candidate.range_and_breakout.bb_width_percentile_7d >= 0.8 ? "expanded" : "middle range",
         upper_rejection: candidate.range_and_breakout.upper_wick_atr >= 0.6,
         lower_rejection: candidate.range_and_breakout.lower_wick_atr >= 0.6,
+        support: {
+          lower_distance_pct: candidate.range_and_breakout.support_zone_low_distance_pct,
+          upper_distance_pct: candidate.range_and_breakout.support_zone_high_distance_pct,
+          strength: candidate.range_and_breakout.support_strength,
+        },
+        resistance: {
+          lower_distance_pct: candidate.range_and_breakout.resistance_zone_low_distance_pct,
+          upper_distance_pct: candidate.range_and_breakout.resistance_zone_high_distance_pct,
+          strength: candidate.range_and_breakout.resistance_strength,
+          secondary_distance_pct: candidate.range_and_breakout.secondary_resistance_distance_pct,
+        },
       },
     },
     participation_and_risk: {
@@ -69,13 +80,30 @@ function semanticCandidate(candidate: BlindCandidateNumericState) {
       downside_volatility_dominant: candidate.risk_and_participation.downside_volatility_24h_pct
         > candidate.risk_and_participation.realized_volatility_24h_pct * 0.8,
       recent_drawdown_pct: candidate.risk_and_participation.drawdown_20d_pct,
+      volatility_context: {
+        atr_15m_pct: candidate.risk_and_participation.atr_14_pct,
+        atr_1h_pct: candidate.risk_and_participation.atr_14_1h_pct,
+        atr_4h_pct: candidate.risk_and_participation.atr_14_4h_pct,
+        atr_percentile: candidate.risk_and_participation.atr_15m_percentile,
+      },
     },
     execution: {
       flow: candidate.execution.trade_flow_imbalance,
       resting_liquidity_imbalance: candidate.execution.orderbook_imbalance,
       depth_ratio: candidate.execution.depth_ratio,
-      cost_to_range: candidate.execution.atr_to_cost_ratio >= 5
-        ? "favorable" : candidate.execution.atr_to_cost_ratio >= 2.5 ? "adequate" : "costly",
+      round_trip_cost_pct: candidate.execution.round_trip_cost_pct,
+      atr_to_cost_ratio: candidate.execution.atr_to_cost_ratio,
+      wall_bias: candidate.execution.orderbook_wall_bias,
+      bid_wall: {
+        distance_pct: candidate.execution.bid_wall_distance_pct,
+        share: candidate.execution.bid_wall_share,
+        persistence: candidate.execution.bid_wall_persistence,
+      },
+      ask_wall: {
+        distance_pct: candidate.execution.ask_wall_distance_pct,
+        share: candidate.execution.ask_wall_share,
+        persistence: candidate.execution.ask_wall_persistence,
+      },
       provenance: candidate.execution.microstructure_provenance,
     },
     leveraged_positioning: candidate.leveraged_positioning,

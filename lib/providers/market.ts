@@ -244,6 +244,136 @@ export function calculateReturnStreak(values: number[]) {
   return streak;
 }
 
+type WeightedLevel = { price: number; weight: number };
+
+function rollingAtrPercentile(candles: Candle[], period = 14) {
+  const values: number[] = [];
+  for (let end = period + 1; end <= candles.length; end += 1) {
+    const window = candles.slice(Math.max(0, end - period - 1), end);
+    if (window.length <= period) continue;
+    const closes = window.map((candle) => candle.close);
+    const atr = calculateAtr(
+      window.map((candle) => candle.high),
+      window.map((candle) => candle.low),
+      closes,
+      period,
+    );
+    const last = closes.at(-1)!;
+    if (last > 0) values.push(atr / last * 100);
+  }
+  const latest = values.at(-1) ?? 0;
+  return percentileRank(values, latest);
+}
+
+function swingLevels(candles: Candle[], lookback: number, weight: number) {
+  const window = candles.slice(-lookback);
+  const support: WeightedLevel[] = [];
+  const resistance: WeightedLevel[] = [];
+  for (let index = 2; index < window.length - 2; index += 1) {
+    const candle = window[index];
+    const neighbors = [window[index - 2], window[index - 1], window[index + 1], window[index + 2]];
+    if (neighbors.every((item) => candle.low <= item.low)) support.push({ price: candle.low, weight });
+    if (neighbors.every((item) => candle.high >= item.high)) resistance.push({ price: candle.high, weight });
+  }
+  return { support, resistance };
+}
+
+function clusteredLevel(
+  levels: WeightedLevel[],
+  lastPrice: number,
+  atr: number,
+  side: "support" | "resistance",
+  fallback: number,
+) {
+  const filtered = levels.filter((level) => Number.isFinite(level.price)
+    && level.price > 0
+    && (side === "support" ? level.price <= lastPrice : level.price >= lastPrice));
+  if (!filtered.length) return { center: fallback, strength: 0.25 };
+  const tolerance = Math.max(atr * 0.7, lastPrice * 0.0012);
+  const sorted = [...filtered].sort((left, right) => left.price - right.price);
+  const clusters: Array<{ center: number; weight: number; hits: number }> = [];
+  for (const level of sorted) {
+    const existing = clusters.find((cluster) => Math.abs(cluster.center - level.price) <= tolerance);
+    if (existing) {
+      const combinedWeight = existing.weight + level.weight;
+      existing.center = (existing.center * existing.weight + level.price * level.weight) / combinedWeight;
+      existing.weight = combinedWeight;
+      existing.hits += 1;
+    } else {
+      clusters.push({ center: level.price, weight: level.weight, hits: 1 });
+    }
+  }
+  const candidates = clusters
+    .filter((cluster) => side === "support" ? cluster.center <= lastPrice : cluster.center >= lastPrice)
+    .sort((left, right) => side === "support" ? right.center - left.center : left.center - right.center);
+  const selected = candidates[0] ?? { center: fallback, weight: 1, hits: 1 };
+  return {
+    center: selected.center,
+    strength: clamp(selected.weight / 12 + selected.hits / 16),
+  };
+}
+
+function structuralZones(input: {
+  candles: Candle[];
+  hourlyCandles: Candle[];
+  fourHourlyCandles: Candle[];
+  lastPrice: number;
+  atr: number;
+  ema21: number;
+  ema50: number;
+  ema200: number;
+  vwap: number;
+  bbLower: number;
+  bbUpper: number;
+  channel24h: ReturnType<typeof channelState>;
+  channel3d: ReturnType<typeof channelState>;
+  channel7d: ReturnType<typeof channelState>;
+}) {
+  const local = swingLevels(input.candles, 96, 1);
+  const hourly = swingLevels(input.hourlyCandles, 120, 1.6);
+  const higher = swingLevels(input.fourHourlyCandles, 120, 2.4);
+  const supports: WeightedLevel[] = [
+    ...local.support, ...hourly.support, ...higher.support,
+    { price: input.channel24h.low, weight: 1.4 },
+    { price: input.channel3d.low, weight: 1.8 },
+    { price: input.channel7d.low, weight: 2.2 },
+    { price: input.ema21, weight: 0.7 },
+    { price: input.ema50, weight: 1 },
+    { price: input.ema200, weight: 1.3 },
+    { price: input.vwap, weight: 1 },
+    { price: input.bbLower, weight: 0.8 },
+  ];
+  const resistances: WeightedLevel[] = [
+    ...local.resistance, ...hourly.resistance, ...higher.resistance,
+    { price: input.channel24h.high, weight: 1.4 },
+    { price: input.channel3d.high, weight: 1.8 },
+    { price: input.channel7d.high, weight: 2.2 },
+    { price: input.ema21, weight: 0.7 },
+    { price: input.ema50, weight: 1 },
+    { price: input.ema200, weight: 1.3 },
+    { price: input.vwap, weight: 1 },
+    { price: input.bbUpper, weight: 0.8 },
+  ];
+  const support = clusteredLevel(supports, input.lastPrice, input.atr, "support", input.channel24h.low);
+  const resistance = clusteredLevel(resistances, input.lastPrice, input.atr, "resistance", input.channel24h.high);
+  const zoneHalfWidth = Math.max(input.atr * 0.35, input.lastPrice * 0.0008);
+  const higherTargets = resistances
+    .map((item) => item.price)
+    .filter((price) => price > resistance.center + zoneHalfWidth)
+    .sort((left, right) => left - right);
+  const secondaryResistance = higherTargets[0]
+    ?? Math.max(input.channel3d.high, input.channel7d.high, resistance.center + input.atr * 2);
+  return {
+    supportLow: Math.max(0, support.center - zoneHalfWidth),
+    supportHigh: support.center + zoneHalfWidth,
+    supportStrength: support.strength,
+    resistanceLow: Math.max(input.lastPrice, resistance.center - zoneHalfWidth),
+    resistanceHigh: resistance.center + zoneHalfWidth,
+    resistanceStrength: resistance.strength,
+    secondaryResistance,
+  };
+}
+
 type MamisInput = {
   regime: MarketRegime;
   lastPrice: number;
@@ -331,9 +461,19 @@ export function stabilizeMamisPhases(
   return Object.fromEntries((Object.keys(current) as TradeAsset[]).map((asset) => {
     const latest = current[asset];
     const prior = previous[asset];
-    if (!prior?.mamis_phase || latest.mamis_phase === prior.mamis_phase || latest.mamis_confidence >= 0.75) return [asset, latest];
-    return [asset, {
+    const wallTolerancePct = Math.max(0.08, latest.atr_14_pct * 0.5);
+    const sameBidWall = prior?.largest_bid_wall_price > 0
+      && Math.abs(latest.largest_bid_wall_price / prior.largest_bid_wall_price - 1) * 100 <= wallTolerancePct;
+    const sameAskWall = prior?.largest_ask_wall_price > 0
+      && Math.abs(latest.largest_ask_wall_price / prior.largest_ask_wall_price - 1) * 100 <= wallTolerancePct;
+    const persisted = {
       ...latest,
+      bid_wall_persistence: sameBidWall ? round(Math.min(1, (prior.bid_wall_persistence ?? 0.25) + 0.25), 2) : 0.25,
+      ask_wall_persistence: sameAskWall ? round(Math.min(1, (prior.ask_wall_persistence ?? 0.25) + 0.25), 2) : 0.25,
+    };
+    if (!prior?.mamis_phase || latest.mamis_phase === prior.mamis_phase || latest.mamis_confidence >= 0.75) return [asset, persisted];
+    return [asset, {
+      ...persisted,
       mamis_phase: prior.mamis_phase,
       mamis_confidence: round(Math.max(0.5, prior.mamis_confidence - 0.1), 3),
       mamis_evidence: [...latest.mamis_evidence, "phase transition held for one more cycle by hysteresis"],
@@ -379,6 +519,17 @@ export function buildTechnicalState(
   const ema200 = calculateEmaSeries(closes, 200);
   const bollinger = calculateBollinger(closes);
   const atr = calculateAtr(highs, lows, closes);
+  const hourlyAtr = calculateAtr(
+    hourlyCandles.map((candle) => candle.high),
+    hourlyCandles.map((candle) => candle.low),
+    hourlyCloses,
+  );
+  const fourHourlyAtr = calculateAtr(
+    fourHourlyCandles.map((candle) => candle.high),
+    fourHourlyCandles.map((candle) => candle.low),
+    fourHourlyCloses,
+  );
+  const atr15mPercentile = rollingAtrPercentile(candles);
   const directional = calculateAdx(highs, lows, closes);
   const hourlyBandWidths = hourlyCloses
     .map((_, index) => index >= 19 ? calculateBollinger(hourlyCloses.slice(0, index + 1)).widthPct : null)
@@ -418,6 +569,22 @@ export function buildTechnicalState(
   const channel24h = channelState(candles.slice(-97, -1), lastPrice, atr);
   const channel3d = channelState(hourlyCandles.slice(-73, -1), lastPrice, atr);
   const channel7d = channelState(hourlyCandles.slice(-169, -1), lastPrice, atr);
+  const zones = structuralZones({
+    candles,
+    hourlyCandles,
+    fourHourlyCandles,
+    lastPrice,
+    atr,
+    ema21: ema21.at(-1)!,
+    ema50: ema50.at(-1)!,
+    ema200: ema200.at(-1)!,
+    vwap: sessionVwap,
+    bbLower: bollinger.lower,
+    bbUpper: bollinger.upper,
+    channel24h,
+    channel3d,
+    channel7d,
+  });
   const lastCandle = candles.at(-1)!;
   const mamis = classifyMamisPhase({
     regime: regime.regime,
@@ -447,6 +614,9 @@ export function buildTechnicalState(
     ema_50: round(ema50.at(-1)!, 4), ema_200: round(ema200.at(-1)!, 4),
     ema_50_slope_3h_pct: round(((ema50.at(-1)! / ema50.at(-13)!) - 1) * 100, 4),
     rsi_14: round(rsi, 3), atr_14: round(atr, 4), atr_14_pct: round((atr / closes.at(-1)!) * 100, 4),
+    atr_14_1h_pct: round((hourlyAtr / hourlyCloses.at(-1)!) * 100, 4),
+    atr_14_4h_pct: round((fourHourlyAtr / fourHourlyCloses.at(-1)!) * 100, 4),
+    atr_15m_percentile: round(atr15mPercentile, 4),
     bb_upper: round(bollinger.upper, 4), bb_lower: round(bollinger.lower, 4),
     bb_width_pct: round(bollinger.widthPct, 3), bb_position: round(bollinger.position, 4),
     macd_hist: round(macdHistogram, 6),
@@ -464,6 +634,13 @@ export function buildTechnicalState(
     channel_3d_position: round(channel3d.position, 4),
     channel_7d_high: round(channel7d.high, 4), channel_7d_low: round(channel7d.low, 4),
     channel_7d_position: round(channel7d.position, 4),
+    support_zone_low: round(zones.supportLow, 4), support_zone_high: round(zones.supportHigh, 4),
+    support_strength: round(zones.supportStrength, 4),
+    resistance_zone_low: round(zones.resistanceLow, 4), resistance_zone_high: round(zones.resistanceHigh, 4),
+    resistance_strength: round(zones.resistanceStrength, 4),
+    secondary_resistance_price: round(zones.secondaryResistance, 4),
+    support_distance_pct: round(((lastPrice / Math.max(zones.supportHigh, 0.0001)) - 1) * 100, 4),
+    resistance_distance_pct: round(((Math.max(zones.resistanceLow, lastPrice) / lastPrice) - 1) * 100, 4),
     distance_to_24h_high_atr: round(channel24h.distanceToHighAtr, 4),
     distance_to_24h_low_atr: round(channel24h.distanceToLowAtr, 4),
     breakout_24h_pct: round(channel24h.breakoutPct, 4),
@@ -572,6 +749,15 @@ export class MarketDataAggregator {
     const totalBid = bids.reduce((sum, bid) => sum + Number(bid[0]) * Number(bid[1]), 0);
     const totalAsk = asks.reduce((sum, ask) => sum + Number(ask[0]) * Number(ask[1]), 0);
     const depth = totalBid + totalAsk;
+    const bidLevels = bids.map((bid) => ({ price: Number(bid[0]), notional: Number(bid[0]) * Number(bid[1]) }))
+      .filter((level) => Number.isFinite(level.price) && Number.isFinite(level.notional));
+    const askLevels = asks.map((ask) => ({ price: Number(ask[0]), notional: Number(ask[0]) * Number(ask[1]) }))
+      .filter((level) => Number.isFinite(level.price) && Number.isFinite(level.notional));
+    const largestBid = bidLevels.reduce((best, level) => level.notional > best.notional ? level : best, bidLevels[0]);
+    const largestAsk = askLevels.reduce((best, level) => level.notional > best.notional ? level : best, askLevels[0]);
+    const bidWallShare = totalBid > 0 ? largestBid.notional / totalBid : 0;
+    const askWallShare = totalAsk > 0 ? largestAsk.notional / totalAsk : 0;
+    const wallShareTotal = bidWallShare + askWallShare;
     return {
       sourceTime: Number(response.result.cts || response.result.ts || response.time),
       bid_ask_spread_pct: round(((bestAsk - bestBid) / midpoint) * 100, 5),
@@ -579,6 +765,17 @@ export class MarketDataAggregator {
       bid_depth_50_usdt: round(totalBid, 2),
       ask_depth_50_usdt: round(totalAsk, 2),
       depth_ratio: round(totalAsk > 0 ? totalBid / totalAsk : 0, 4),
+      largest_bid_wall_price: round(largestBid.price, 4),
+      largest_bid_wall_usdt: round(largestBid.notional, 2),
+      largest_bid_wall_distance_pct: round(((midpoint / largestBid.price) - 1) * 100, 4),
+      bid_wall_share: round(bidWallShare, 4),
+      bid_wall_persistence: 0.25,
+      largest_ask_wall_price: round(largestAsk.price, 4),
+      largest_ask_wall_usdt: round(largestAsk.notional, 2),
+      largest_ask_wall_distance_pct: round(((largestAsk.price / midpoint) - 1) * 100, 4),
+      ask_wall_share: round(askWallShare, 4),
+      ask_wall_persistence: 0.25,
+      orderbook_wall_bias: round(wallShareTotal > 0 ? (bidWallShare - askWallShare) / wallShareTotal : 0, 4),
     };
   }
 

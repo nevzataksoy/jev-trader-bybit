@@ -105,6 +105,9 @@ export interface EngineComparisonSummary {
   abstentionRuns: number;
   abstentionRatePct: number;
   balances: SpotBalance[];
+  policyRevision: string | null;
+  configRevision: string | null;
+  sourceRevision: string | null;
 }
 
 export interface ExperimentOrderItem {
@@ -129,6 +132,9 @@ export interface ExperimentOrderItem {
 export interface ExperimentRunItem {
   engineId: StrategyEngineId;
   engineVersion: string;
+  policyRevision: string | null;
+  configRevision: string | null;
+  sourceRevision: string | null;
   cycleKey: string;
   status: "running" | "completed" | "failed";
   jevModel: string | null;
@@ -138,6 +144,40 @@ export interface ExperimentRunItem {
   error: string | null;
   startedAt: string;
   completedAt: string | null;
+}
+
+export interface ExperimentExecutionAttempt {
+  engineId: StrategyEngineId;
+  engineVersion: string;
+  policyRevision: string | null;
+  cycleKey: string;
+  asset: TradeAsset;
+  action: "buy" | "sell";
+  status: string;
+  reason: string;
+  diagnostics: BotExecutionResult["executionDiagnostics"] | null;
+  createdAt: string;
+}
+
+export interface ExperimentCounterfactualItem {
+  id: number;
+  engineId: StrategyEngineId;
+  engineVersion: string;
+  policyRevision: string | null;
+  cycleKey: string;
+  asset: TradeAsset;
+  action: "buy" | "sell";
+  setup: string;
+  readiness: string;
+  confidence: number;
+  referencePrice: number;
+  expectedNetEdgePct: number | null;
+  rejectionReason: string;
+  createdAt: string;
+  forward15mPct: number | null;
+  forward1hPct: number | null;
+  forward4hPct: number | null;
+  forward12hPct: number | null;
 }
 
 export interface ModelsDashboardState {
@@ -162,6 +202,8 @@ export interface ModelsDashboardState {
   equity: EngineComparisonPoint[];
   orders: ExperimentOrderItem[];
   runs: ExperimentRunItem[];
+  executionAttempts: ExperimentExecutionAttempt[];
+  counterfactuals: ExperimentCounterfactualItem[];
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {
@@ -552,16 +594,16 @@ export async function savePaperEquitySnapshot(
 export async function getModelsDashboardState(
   requestedExperimentId?: string,
 ): Promise<Omit<ModelsDashboardState, "generatedAt" | "runMode" | "activeEngines" | "availableEngines" | "exchangeExecutionEngine" | "exchangeRoutingForcedOff" | "database" | "message">> {
-  if (!isDatabaseConfigured()) return { experiment: null, engines: [], equity: [], orders: [], runs: [] };
+  if (!isDatabaseConfigured()) return { experiment: null, engines: [], equity: [], orders: [], runs: [], executionAttempts: [], counterfactuals: [] };
   await ensureDatabase();
   const sql = getSql();
   const experimentRows = requestedExperimentId
     ? await sql`SELECT * FROM strategy_experiments WHERE experiment_id = ${requestedExperimentId} LIMIT 1`
     : await sql`SELECT * FROM strategy_experiments ORDER BY started_at DESC LIMIT 1`;
-  if (!experimentRows.length) return { experiment: null, engines: [], equity: [], orders: [], runs: [] };
+  if (!experimentRows.length) return { experiment: null, engines: [], equity: [], orders: [], runs: [], executionAttempts: [], counterfactuals: [] };
   const experimentRow = experimentRows[0];
   const experimentId = String(experimentRow.experiment_id);
-  const [equityRows, orderRows, runRows, portfolioRows, orderStatsRows, runStatsRows] = await Promise.all([
+  const [equityRows, orderRows, runRows, portfolioRows, orderStatsRows, runStatsRows, counterfactualRows] = await Promise.all([
     sql`
       SELECT engine_id, captured_at, total_equity_usdt, cash_usdt, drawdown_pct
       FROM engine_equity_snapshots
@@ -576,10 +618,12 @@ export async function getModelsDashboardState(
       LIMIT 500
     `,
     sql`
-      SELECT engine_id, engine_version, cycle_key, status, jev_model, latency_ms, usage,
-             decisions, executions, error, started_at, completed_at
-      FROM engine_runs
-      WHERE experiment_id = ${experimentId}
+      SELECT run.engine_id, run.engine_version, run.cycle_key, run.status, run.jev_model, run.latency_ms, run.usage,
+             run.decisions, run.executions, run.error, run.started_at, run.completed_at,
+             revision.policy_revision, revision.config_revision, revision.source_revision
+      FROM engine_runs run
+      LEFT JOIN engine_policy_revisions revision ON revision.revision_id = run.revision_id
+      WHERE run.experiment_id = ${experimentId}
       ORDER BY started_at DESC
       LIMIT 200
     `,
@@ -621,6 +665,14 @@ export async function getModelsDashboardState(
       WHERE experiment_id = ${experimentId}
       GROUP BY engine_id
     `,
+    sql`
+      SELECT cf.*, revision.policy_revision
+      FROM engine_counterfactuals cf
+      LEFT JOIN engine_policy_revisions revision ON revision.revision_id = cf.revision_id
+      WHERE cf.experiment_id = ${experimentId}
+      ORDER BY cf.created_at DESC
+      LIMIT 250
+    `,
   ]);
   const equity: EngineComparisonPoint[] = equityRows.map((row) => ({
     engineId: String(row.engine_id) as StrategyEngineId,
@@ -640,6 +692,9 @@ export async function getModelsDashboardState(
   }));
   const runs: ExperimentRunItem[] = runRows.map((row) => ({
     engineId: String(row.engine_id) as StrategyEngineId, engineVersion: String(row.engine_version),
+    policyRevision: row.policy_revision ? String(row.policy_revision) : null,
+    configRevision: row.config_revision ? String(row.config_revision) : null,
+    sourceRevision: row.source_revision ? String(row.source_revision) : null,
     cycleKey: String(row.cycle_key), status: String(row.status) as ExperimentRunItem["status"],
     jevModel: row.jev_model ? String(row.jev_model) : null,
     latencyMs: row.latency_ms === null ? null : Number(row.latency_ms),
@@ -648,6 +703,47 @@ export async function getModelsDashboardState(
     startedAt: new Date(String(row.started_at)).toISOString(),
     completedAt: row.completed_at ? new Date(String(row.completed_at)).toISOString() : null,
   }));
+  const executionAttempts: ExperimentExecutionAttempt[] = runs.flatMap((run) => run.executions
+    .filter((execution) => execution.action === "buy" || execution.action === "sell")
+    .map((execution) => ({
+      engineId: run.engineId,
+      engineVersion: run.engineVersion,
+      policyRevision: run.policyRevision,
+      cycleKey: run.cycleKey,
+      asset: execution.asset,
+      action: execution.action as "buy" | "sell",
+      status: execution.status,
+      reason: execution.reason,
+      diagnostics: execution.executionDiagnostics ?? null,
+      createdAt: run.completedAt ?? run.startedAt,
+    })));
+  const forwardPct = (reference: number, future: unknown) => {
+    const price = future === null || future === undefined ? null : Number(future);
+    return price !== null && Number.isFinite(price) && reference > 0 ? (price / reference - 1) * 100 : null;
+  };
+  const counterfactuals: ExperimentCounterfactualItem[] = counterfactualRows.map((row) => {
+    const referencePrice = Number(row.reference_price);
+    return {
+      id: Number(row.id),
+      engineId: String(row.engine_id) as StrategyEngineId,
+      engineVersion: String(row.engine_version),
+      policyRevision: row.policy_revision ? String(row.policy_revision) : null,
+      cycleKey: String(row.cycle_key),
+      asset: String(row.asset) as TradeAsset,
+      action: String(row.action) as "buy" | "sell",
+      setup: String(row.setup),
+      readiness: String(row.readiness),
+      confidence: Number(row.confidence),
+      referencePrice,
+      expectedNetEdgePct: row.expected_net_edge_pct === null ? null : Number(row.expected_net_edge_pct),
+      rejectionReason: String(row.rejection_reason),
+      createdAt: new Date(String(row.created_at)).toISOString(),
+      forward15mPct: forwardPct(referencePrice, row.forward_15m_price),
+      forward1hPct: forwardPct(referencePrice, row.forward_1h_price),
+      forward4hPct: forwardPct(referencePrice, row.forward_4h_price),
+      forward12hPct: forwardPct(referencePrice, row.forward_12h_price),
+    };
+  });
   const engineVersions = parseJson<Record<StrategyEngineId, string>>(experimentRow.engine_versions, {});
   const initialCapital = Number(experimentRow.initial_capital_usdt);
   const latestPricesRow = await sql`SELECT prices FROM shared_market_snapshots ORDER BY captured_at DESC LIMIT 1`;
@@ -682,6 +778,9 @@ export async function getModelsDashboardState(
       abstentionRuns,
       abstentionRatePct: completedRuns > 0 ? abstentionRuns / completedRuns * 100 : 0,
       balances,
+      policyRevision: runs.find((run) => run.engineId === engineId)?.policyRevision ?? null,
+      configRevision: runs.find((run) => run.engineId === engineId)?.configRevision ?? null,
+      sourceRevision: runs.find((run) => run.engineId === engineId)?.sourceRevision ?? null,
     };
   });
   return {
@@ -698,5 +797,7 @@ export async function getModelsDashboardState(
     equity,
     orders,
     runs,
+    executionAttempts,
+    counterfactuals,
   };
 }

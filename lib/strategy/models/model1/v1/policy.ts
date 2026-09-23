@@ -116,7 +116,7 @@ function setupIsViable(
   if (setup === "trend_pullback") {
     return (market.regime === "bull_trend" || judgments.regime.choice === "uptrend")
       && market.last_price > market.ema_200
-      && (nearSupport || market.support_strength >= 0.45)
+      && (nearSupport || supportStrength >= 0.45)
       && market.price_zscore_20 <= 1.1;
   }
   if (setup === "upside_breakout") {
@@ -158,10 +158,16 @@ function evaluateOpportunity(
       + judgments.setup_quality.confidence
   ) / 4);
   const geometry = buildStructuralGeometry(market, feePct, config.estimatedSlippagePct);
+  const supportLow = market.support_zone_low ?? market.channel_24h_low;
+  const supportHigh = market.support_zone_high ?? market.channel_24h_low;
+  const supportStrength = market.support_strength ?? 0.25;
+  const resistanceLow = market.resistance_zone_low ?? market.channel_24h_high;
+  const resistanceHigh = market.resistance_zone_high ?? market.channel_24h_high;
+  const resistanceStrength = market.resistance_strength ?? 0.25;
   const macroScore = macroBias(asset, macro);
   const microScore = microstructureBias(market);
   const leverageScore = leverageBias(market);
-  const supportInvalidated = market.last_price < market.support_zone_low;
+  const supportInvalidated = market.last_price < supportLow;
   const resistanceRejection = position.status === "held"
     && geometry.nearResistance
     && !geometry.breakoutAccepted
@@ -182,12 +188,12 @@ function evaluateOpportunity(
     targetDistancePct: geometry.targetDistancePct,
     invalidationDistancePct: geometry.invalidationDistancePct,
     targetToCostRatio: geometry.targetToCostRatio,
-    supportZoneLow: market.support_zone_low,
-    supportZoneHigh: market.support_zone_high,
-    supportStrength: market.support_strength,
-    resistanceZoneLow: market.resistance_zone_low,
-    resistanceZoneHigh: market.resistance_zone_high,
-    resistanceStrength: market.resistance_strength,
+    supportZoneLow: supportLow,
+    supportZoneHigh: supportHigh,
+    supportStrength,
+    resistanceZoneLow: resistanceLow,
+    resistanceZoneHigh: resistanceHigh,
+    resistanceStrength,
     macroBias: macroScore,
     microstructureBias: microScore,
     leverageBias: leverageScore,
@@ -224,7 +230,7 @@ function evaluateOpportunity(
       + patternProbability * 0.12
       + judgments.liquidity_ok * 0.08
       + readinessScore * 0.08
-      + market.support_strength * 0.05
+      + supportStrength * 0.05
       + microScore * 0.035
       + leverageScore * 0.025
       + macroScore * 0.02

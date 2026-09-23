@@ -39,6 +39,10 @@ const hardFatalBlockers = new Set<DecisionBlocker>([
   "LIQUIDITY_LOW",
   "DISORDERLY_MARKET",
   "RISK_BUDGET_ZERO",
+  "NO_ALLOCATION_INTENT",
+  "THESIS_INVALID",
+  "TARGET_ROOM_LOW",
+  "MICROSTRUCTURE_WEAK",
 ]);
 
 function parseJson<T>(value: unknown): T {
@@ -69,10 +73,10 @@ function mapPendingSignal(row: Record<string, unknown>): PendingSignal {
 }
 
 function triggerPrice(setup: TradingSetup, market: MarketIndicatorState) {
-  if (setup === "upside_breakout") return market.channel_24h_high;
-  if (setup === "range_reversion") return market.channel_24h_low;
-  if (setup === "bear_rebound") return market.ema_9;
-  return market.ema_21;
+  if (setup === "upside_breakout") return market.resistance_zone_high;
+  if (setup === "range_reversion") return market.support_zone_high;
+  if (setup === "bear_rebound") return Math.max(market.support_zone_high, market.ema_9);
+  return market.support_zone_high;
 }
 
 function hasHardFatalBlocker(decision: JevDecision) {
@@ -297,7 +301,10 @@ export async function applyConfirmation(input: {
         ...decision,
         action: "hold",
         signalState: "pending",
-        blockedBy: [...new Set([...(decision.blockedBy ?? []), pendingBlocker])],
+        blockedBy: [...new Set([
+          ...(decision.blockedBy ?? []).filter((item) => item !== "PENDING_CLOSE" && item !== "PENDING_RETEST"),
+          pendingBlocker,
+        ])],
         policyReason: `${decision.policyReason} Model2 V2 keeps the watch signal active, but confirmation cannot promote it while NET_EDGE_LOW remains.`,
       };
     } else if (signal) {
@@ -314,7 +321,9 @@ export async function applyConfirmation(input: {
       } else {
         const pendingBlocker: DecisionBlocker = signal.readiness === "wait_close" ? "PENDING_CLOSE" : "PENDING_RETEST";
         const pendingBlockers: DecisionBlocker[] = [
-          ...(decision.blockedBy ?? []).filter((item) => !hardFatalBlockers.has(item)),
+          ...(decision.blockedBy ?? []).filter((item) => !hardFatalBlockers.has(item)
+            && item !== "PENDING_CLOSE"
+            && item !== "PENDING_RETEST"),
           pendingBlocker,
         ];
         decision = {

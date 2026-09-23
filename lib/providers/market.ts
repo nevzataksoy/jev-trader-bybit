@@ -462,12 +462,14 @@ export function stabilizeMamisPhases(
     const latest = current[asset];
     const prior = previous[asset];
     const wallTolerancePct = Math.max(0.08, latest.atr_14_pct * 0.5);
+    const latestBidWallPrice = Number(latest.largest_bid_wall_price ?? 0);
+    const latestAskWallPrice = Number(latest.largest_ask_wall_price ?? 0);
     const priorBidWallPrice = Number(prior?.largest_bid_wall_price ?? 0);
     const priorAskWallPrice = Number(prior?.largest_ask_wall_price ?? 0);
-    const sameBidWall = priorBidWallPrice > 0
-      && Math.abs(latest.largest_bid_wall_price / priorBidWallPrice - 1) * 100 <= wallTolerancePct;
-    const sameAskWall = priorAskWallPrice > 0
-      && Math.abs(latest.largest_ask_wall_price / priorAskWallPrice - 1) * 100 <= wallTolerancePct;
+    const sameBidWall = latestBidWallPrice > 0 && priorBidWallPrice > 0
+      && Math.abs(latestBidWallPrice / priorBidWallPrice - 1) * 100 <= wallTolerancePct;
+    const sameAskWall = latestAskWallPrice > 0 && priorAskWallPrice > 0
+      && Math.abs(latestAskWallPrice / priorAskWallPrice - 1) * 100 <= wallTolerancePct;
     const persisted = {
       ...latest,
       bid_wall_persistence: sameBidWall ? round(Math.min(1, (prior.bid_wall_persistence ?? 0.25) + 0.25), 2) : 0.25,

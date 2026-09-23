@@ -189,6 +189,8 @@ CREATE TABLE IF NOT EXISTS engine_pending_signals (
   resolution_reason TEXT
 );
 
+ALTER TABLE engine_runs ADD COLUMN IF NOT EXISTS revision_id BIGINT;
+
 CREATE INDEX IF NOT EXISTS portfolio_snapshots_captured_idx ON portfolio_snapshots(captured_at DESC);
 CREATE INDEX IF NOT EXISTS spot_orders_created_idx ON spot_orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS bot_runs_started_idx ON bot_runs(started_at DESC);

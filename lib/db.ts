@@ -594,63 +594,83 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       RETURNING id
     `;
     const counterfactual15m = await transaction`
+      WITH matched AS (
+        SELECT candidate.id, (
+          SELECT (snapshot.prices->>candidate.asset)::numeric
+          FROM shared_market_snapshots snapshot
+          WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '12 minutes'
+            AND snapshot.captured_at <= candidate.created_at + INTERVAL '35 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '15 minutes'))))
+          LIMIT 1
+        ) AS price
+        FROM engine_counterfactuals candidate
+        WHERE candidate.forward_15m_price IS NULL
+          AND candidate.created_at <= NOW() - INTERVAL '15 minutes'
+      )
       UPDATE engine_counterfactuals candidate
-      SET forward_15m_price = lookup.price, updated_at = NOW()
-      FROM LATERAL (
-        SELECT (snapshot.prices->>candidate.asset)::numeric AS price
-        FROM shared_market_snapshots snapshot
-        WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '12 minutes'
-          AND snapshot.captured_at <= candidate.created_at + INTERVAL '35 minutes'
-        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '15 minutes'))))
-        LIMIT 1
-      ) lookup
-      WHERE candidate.forward_15m_price IS NULL
-        AND candidate.created_at <= NOW() - INTERVAL '15 minutes'
+      SET forward_15m_price = matched.price, updated_at = NOW()
+      FROM matched
+      WHERE candidate.id = matched.id AND matched.price IS NOT NULL
       RETURNING candidate.id
     `;
     const counterfactual1h = await transaction`
+      WITH matched AS (
+        SELECT candidate.id, (
+          SELECT (snapshot.prices->>candidate.asset)::numeric
+          FROM shared_market_snapshots snapshot
+          WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '50 minutes'
+            AND snapshot.captured_at <= candidate.created_at + INTERVAL '80 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '1 hour'))))
+          LIMIT 1
+        ) AS price
+        FROM engine_counterfactuals candidate
+        WHERE candidate.forward_1h_price IS NULL
+          AND candidate.created_at <= NOW() - INTERVAL '1 hour'
+      )
       UPDATE engine_counterfactuals candidate
-      SET forward_1h_price = lookup.price, updated_at = NOW()
-      FROM LATERAL (
-        SELECT (snapshot.prices->>candidate.asset)::numeric AS price
-        FROM shared_market_snapshots snapshot
-        WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '50 minutes'
-          AND snapshot.captured_at <= candidate.created_at + INTERVAL '80 minutes'
-        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '1 hour'))))
-        LIMIT 1
-      ) lookup
-      WHERE candidate.forward_1h_price IS NULL
-        AND candidate.created_at <= NOW() - INTERVAL '1 hour'
+      SET forward_1h_price = matched.price, updated_at = NOW()
+      FROM matched
+      WHERE candidate.id = matched.id AND matched.price IS NOT NULL
       RETURNING candidate.id
     `;
     const counterfactual4h = await transaction`
+      WITH matched AS (
+        SELECT candidate.id, (
+          SELECT (snapshot.prices->>candidate.asset)::numeric
+          FROM shared_market_snapshots snapshot
+          WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '3 hours 45 minutes'
+            AND snapshot.captured_at <= candidate.created_at + INTERVAL '4 hours 20 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '4 hours'))))
+          LIMIT 1
+        ) AS price
+        FROM engine_counterfactuals candidate
+        WHERE candidate.forward_4h_price IS NULL
+          AND candidate.created_at <= NOW() - INTERVAL '4 hours'
+      )
       UPDATE engine_counterfactuals candidate
-      SET forward_4h_price = lookup.price, updated_at = NOW()
-      FROM LATERAL (
-        SELECT (snapshot.prices->>candidate.asset)::numeric AS price
-        FROM shared_market_snapshots snapshot
-        WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '3 hours 45 minutes'
-          AND snapshot.captured_at <= candidate.created_at + INTERVAL '4 hours 20 minutes'
-        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '4 hours'))))
-        LIMIT 1
-      ) lookup
-      WHERE candidate.forward_4h_price IS NULL
-        AND candidate.created_at <= NOW() - INTERVAL '4 hours'
+      SET forward_4h_price = matched.price, updated_at = NOW()
+      FROM matched
+      WHERE candidate.id = matched.id AND matched.price IS NOT NULL
       RETURNING candidate.id
     `;
     const counterfactual12h = await transaction`
+      WITH matched AS (
+        SELECT candidate.id, (
+          SELECT (snapshot.prices->>candidate.asset)::numeric
+          FROM shared_market_snapshots snapshot
+          WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '11 hours 40 minutes'
+            AND snapshot.captured_at <= candidate.created_at + INTERVAL '12 hours 30 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '12 hours'))))
+          LIMIT 1
+        ) AS price
+        FROM engine_counterfactuals candidate
+        WHERE candidate.forward_12h_price IS NULL
+          AND candidate.created_at <= NOW() - INTERVAL '12 hours'
+      )
       UPDATE engine_counterfactuals candidate
-      SET forward_12h_price = lookup.price, updated_at = NOW()
-      FROM LATERAL (
-        SELECT (snapshot.prices->>candidate.asset)::numeric AS price
-        FROM shared_market_snapshots snapshot
-        WHERE snapshot.captured_at >= candidate.created_at + INTERVAL '11 hours 40 minutes'
-          AND snapshot.captured_at <= candidate.created_at + INTERVAL '12 hours 30 minutes'
-        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot.captured_at - (candidate.created_at + INTERVAL '12 hours'))))
-        LIMIT 1
-      ) lookup
-      WHERE candidate.forward_12h_price IS NULL
-        AND candidate.created_at <= NOW() - INTERVAL '12 hours'
+      SET forward_12h_price = matched.price, updated_at = NOW()
+      FROM matched
+      WHERE candidate.id = matched.id AND matched.price IS NOT NULL
       RETURNING candidate.id
     `;
     const deletedCounterfactuals = await transaction`

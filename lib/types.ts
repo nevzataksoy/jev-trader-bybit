@@ -29,6 +29,10 @@ export type DecisionBlocker =
   | "USDT_RESERVE"
   | "ASSET_ALLOCATION_CAP"
   | "ALLOCATION_DEADBAND"
+  | "NO_ALLOCATION_INTENT"
+  | "THESIS_INVALID"
+  | "TARGET_ROOM_LOW"
+  | "MICROSTRUCTURE_WEAK"
   | "MAX_BUYS_PER_CYCLE"
   | "STALE_DATA";
 export type DecisionSignalState = "none" | "pending" | "confirmed" | "expired" | "invalidated";
@@ -82,6 +86,9 @@ export interface MarketIndicatorState {
   rsi_14: number;
   atr_14: number;
   atr_14_pct: number;
+  atr_14_1h_pct: number;
+  atr_14_4h_pct: number;
+  atr_15m_percentile: number;
   bb_upper: number;
   bb_lower: number;
   bb_width_pct: number;
@@ -106,6 +113,15 @@ export interface MarketIndicatorState {
   channel_7d_high: number;
   channel_7d_low: number;
   channel_7d_position: number;
+  support_zone_low: number;
+  support_zone_high: number;
+  support_strength: number;
+  resistance_zone_low: number;
+  resistance_zone_high: number;
+  resistance_strength: number;
+  secondary_resistance_price: number;
+  support_distance_pct: number;
+  resistance_distance_pct: number;
   distance_to_24h_high_atr: number;
   distance_to_24h_low_atr: number;
   breakout_24h_pct: number;
@@ -125,6 +141,17 @@ export interface MarketIndicatorState {
   bid_depth_50_usdt: number;
   ask_depth_50_usdt: number;
   depth_ratio: number;
+  largest_bid_wall_price: number;
+  largest_bid_wall_usdt: number;
+  largest_bid_wall_distance_pct: number;
+  bid_wall_share: number;
+  bid_wall_persistence: number;
+  largest_ask_wall_price: number;
+  largest_ask_wall_usdt: number;
+  largest_ask_wall_distance_pct: number;
+  ask_wall_share: number;
+  ask_wall_persistence: number;
+  orderbook_wall_bias: number;
   taker_buy_ratio: number | null;
   trade_flow_imbalance: number | null;
   trade_flow_window_seconds: number | null;
@@ -245,6 +272,27 @@ export interface JevPortfolioJudgments {
   };
 }
 
+export interface DecisionDiagnostics {
+  roundTripCostPct: number;
+  atrToCostRatio: number;
+  targetPrice: number;
+  invalidationPrice: number;
+  targetDistancePct: number;
+  invalidationDistancePct: number;
+  targetToCostRatio: number;
+  supportZoneLow: number;
+  supportZoneHigh: number;
+  supportStrength: number;
+  resistanceZoneLow: number;
+  resistanceZoneHigh: number;
+  resistanceStrength: number;
+  macroBias: number;
+  microstructureBias: number;
+  leverageBias: number;
+  successProbability: number;
+  grossExpectedEdgePct: number;
+}
+
 export interface JevDecision {
   asset: TradeAsset;
   action: TradeAction;
@@ -262,6 +310,7 @@ export interface JevDecision {
   blockedBy?: DecisionBlocker[];
   readinessScore?: number;
   signalState?: DecisionSignalState;
+  diagnostics?: DecisionDiagnostics;
   judgments: JevAssetJudgments;
 }
 
@@ -320,6 +369,11 @@ export interface BotExecutionResult {
   orderLinkId?: string;
   filledQuantity?: number;
   filledValueUsdt?: number;
+  executionDiagnostics?: {
+    roundTripCostPct?: number;
+    atrToCostRatio?: number;
+    targetToCostRatio?: number;
+  };
 }
 
 export interface BotRunSummary {

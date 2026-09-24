@@ -25,6 +25,8 @@ interface StatefulOpportunity {
   successProbability: number;
   roundTripCostPct: number;
   targetDistancePct: number;
+  rewardDistancePct: number;
+  rewardSource: "resistance" | "atr_projection";
   invalidationDistancePct: number;
   rewardRiskRatio: number;
   expectedNetEdgePct: number;
@@ -118,16 +120,12 @@ function structuralRewardRisk(market: MarketIndicatorState, setup: TradingSetup)
   const invalidationDistance = supportLow > 0 && market.last_price > 0
     ? Math.max(atr * 0.55, (market.last_price - supportLow) / market.last_price * 100)
     : atr * (setup === "upside_breakout" ? 1.15 : 1.05);
-  const fallbackReward = setup === "upside_breakout"
-    ? atr * 2.2
-    : setup === "range_reversion"
-      ? atr * 1.5
-      : setup === "bear_rebound"
-        ? atr * 1.6
-        : atr * 1.8;
-  const reward = Math.max(targetDistance, fallbackReward);
+  const projectedReward = atr * 2.2;
+  const useAtrProjection = setup === "upside_breakout" && targetDistance <= 0;
+  const reward = useAtrProjection ? projectedReward : targetDistance;
   return {
     reward,
+    rewardSource: useAtrProjection ? "atr_projection" as const : "resistance" as const,
     risk: invalidationDistance,
     targetDistance,
     invalidationDistance,
@@ -184,7 +182,7 @@ function evaluateOpportunity(
     || structuralExit
     || (position.status === "held" && directionEdge <= -config.minDirectionalEdge);
 
-  const { reward, risk, targetDistance, invalidationDistance, rewardRiskRatio } = structuralRewardRisk(market, setup);
+  const { reward, rewardSource, risk, targetDistance, invalidationDistance, rewardRiskRatio } = structuralRewardRisk(market, setup);
   if (reduce) {
     return {
       setup,
@@ -194,6 +192,8 @@ function evaluateOpportunity(
       successProbability: 0,
       roundTripCostPct,
       targetDistancePct: targetDistance,
+      rewardDistancePct: reward,
+      rewardSource,
       invalidationDistancePct: invalidationDistance,
       rewardRiskRatio,
       expectedNetEdgePct: 0,
@@ -224,14 +224,14 @@ function evaluateOpportunity(
   );
   const grossExpectedEdgePct = successProbability * reward - (1 - successProbability) * risk;
   const expectedNetEdgePct = grossExpectedEdgePct - roundTripCostPct;
-  const structuralNetRoomPct = targetDistance - roundTripCostPct;
+  const structuralNetRoomPct = reward - roundTripCostPct;
   const viableStructure = setupIsViable(setup, market, judgments, config);
   const blockers: DecisionBlocker[] = [];
   if (readiness === "no_entry") blockers.push("JEV_NO_ENTRY");
   if (setup === "none" || !viableStructure) blockers.push("STRUCTURE_REJECTED");
   if (directionEdge < config.minDirectionalEdge) blockers.push("DIRECTIONAL_EDGE_LOW");
   if (judgments.setup_quality.score < config.minSetupScore) blockers.push("SETUP_QUALITY_LOW");
-  if (targetDistance > 0 && structuralNetRoomPct < config.minExpectedNetEdgePct) blockers.push("TARGET_ROOM_LOW");
+  if (setup !== "none" && structuralNetRoomPct < config.minExpectedNetEdgePct) blockers.push("TARGET_ROOM_LOW");
   if (expectedNetEdgePct < config.minExpectedNetEdgePct) blockers.push("NET_EDGE_LOW");
   if (judgments.liquidity_ok < config.minLiquidityProbability) blockers.push("LIQUIDITY_LOW");
   if (judgments.disorderly >= config.disorderlyProbability) blockers.push("DISORDERLY_MARKET");
@@ -255,6 +255,8 @@ function evaluateOpportunity(
     successProbability,
     roundTripCostPct,
     targetDistancePct: targetDistance,
+    rewardDistancePct: reward,
+    rewardSource,
     invalidationDistancePct: invalidationDistance,
     rewardRiskRatio,
     expectedNetEdgePct,
@@ -422,9 +424,11 @@ export function buildDecisions(
       successProbability: opportunity.successProbability,
       roundTripCostPct: opportunity.roundTripCostPct,
       targetDistancePct: opportunity.targetDistancePct,
+      rewardDistancePct: opportunity.rewardDistancePct,
+      rewardSource: opportunity.rewardSource,
       invalidationDistancePct: opportunity.invalidationDistancePct,
       rewardRiskRatio: opportunity.rewardRiskRatio,
-      policyReason: `Model1 V1 structural policy; support→resistance room ${opportunity.targetDistancePct.toFixed(3)}%, invalidation distance ${opportunity.invalidationDistancePct.toFixed(3)}%, R:R ${opportunity.rewardRiskRatio.toFixed(2)}; `
+      policyReason: `Model1 V1 structural policy; support→resistance room ${opportunity.targetDistancePct.toFixed(3)}%, reward ${opportunity.rewardDistancePct.toFixed(3)}% via ${opportunity.rewardSource}, invalidation distance ${opportunity.invalidationDistancePct.toFixed(3)}%, R:R ${opportunity.rewardRiskRatio.toFixed(2)}; `
         + `gross edge ${opportunity.grossExpectedEdgePct.toFixed(3)}%, round-trip cost ${opportunity.roundTripCostPct.toFixed(3)}%, net edge ${opportunity.expectedNetEdgePct.toFixed(3)}%; `
         + `unified ${portfolioJudgments.gross_risk_budget.choice} risk budget ${grossRiskBudgetPct.toFixed(2)}%; target ${target.toFixed(2)}% versus current ${current.toFixed(2)}%; `
         + (uniqueBlockers.length ? `blocked by ${uniqueBlockers.join(", ")}.` : "eligible for deterministic execution."),

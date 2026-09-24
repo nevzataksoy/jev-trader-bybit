@@ -13,7 +13,7 @@ export const model2V2Engine: StrategyEngine = {
   id: "model2-v2",
   family: "model2",
   version: "v2",
-  policyRevision: "structure-economics-r2",
+  policyRevision: "structure-economics-r3",
   configRevision: "2026-09-24-r1",
   orderDecisions,
   planExecution: (decision, context) => planModelExecution(decision, context, getModelConfig()),

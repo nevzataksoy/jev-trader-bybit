@@ -142,4 +142,59 @@ describe("Model2 V2 watch economics", () => {
     expect(decision.blockedBy).toContain("TARGET_ROOM_LOW");
     expect(decision.action).toBe("hold");
   });
+
+  it("uses detected resistance as reward instead of inflating it with ATR", () => {
+    const judgments = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, jev()])) as Record<TradeAsset, JevAssetJudgments>;
+    const rotations = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, rotation()])) as Record<TradeAsset, RotationAssetJudgment>;
+    const tightMarket = { ...market, distance_to_resistance_pct: 0.2, resistance_zone_low: 100.2 };
+    const indicators = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, tightMarket])) as Record<TradeAsset, MarketIndicatorState>;
+    const positions = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, { ...flatPosition, asset }])) as Record<TradeAsset, PositionContext>;
+    const fees = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, 0.01])) as Record<TradeAsset, number>;
+
+    const [decision] = buildDecisions(judgments, rotations, portfolio, indicators, positions, fees, config);
+
+    expect(decision.targetDistancePct).toBeCloseTo(0.2);
+    expect(decision.rewardDistancePct).toBeCloseTo(0.2);
+    expect(decision.rewardSource).toBe("resistance");
+    expect(decision.rewardRiskRatio).toBeCloseTo(0.2 / 1.5);
+  });
+
+  it("uses ATR projection only for a breakout with no forward resistance room", () => {
+    const breakoutJudgment = {
+      ...jev(),
+      best_setup: {
+        choice: "upside_breakout",
+        confidence: 0.8,
+        probabilities: { trend_pullback: 0, upside_breakout: 1, range_reversion: 0, bear_rebound: 0, reduce: 0, none: 0 },
+      },
+      entry_readiness: {
+        choice: "enter_now",
+        confidence: 0.8,
+        probabilities: { enter_now: 0.8, wait_close: 0.05, wait_retest: 0.05, no_entry: 0.1 },
+      },
+      false_breakout: 0.2,
+    } satisfies JevAssetJudgments;
+    const enterRotation = {
+      ...rotation(),
+      action: {
+        choice: "enter",
+        confidence: 0.8,
+        probabilities: { enter: 0.8, increase: 0.04, watch: 0.04, hold: 0.04, reduce: 0.04, exit: 0.04 },
+      },
+    } satisfies RotationAssetJudgment;
+    const judgments = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, breakoutJudgment])) as Record<TradeAsset, JevAssetJudgments>;
+    const rotations = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, enterRotation])) as Record<TradeAsset, RotationAssetJudgment>;
+    const breakoutMarket = { ...market, channel_24h_position: 0.9, distance_to_resistance_pct: 0, resistance_zone_low: 100 };
+    const indicators = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, breakoutMarket])) as Record<TradeAsset, MarketIndicatorState>;
+    const positions = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, { ...flatPosition, asset }])) as Record<TradeAsset, PositionContext>;
+    const fees = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, 0.01])) as Record<TradeAsset, number>;
+
+    const [decision] = buildDecisions(judgments, rotations, portfolio, indicators, positions, fees, config);
+
+    expect(decision.targetDistancePct).toBe(0);
+    expect(decision.rewardDistancePct).toBeCloseTo(2.2);
+    expect(decision.rewardSource).toBe("atr_projection");
+    expect(decision.rewardRiskRatio).toBeCloseTo(2.2 / 1.5);
+  });
+
 });

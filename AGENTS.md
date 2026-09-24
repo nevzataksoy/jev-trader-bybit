@@ -220,6 +220,17 @@ Current structural policy uses deterministic multi-timeframe support/resistance 
 
 Real Bybit liquidation events are not collected in the 15-minute serverless cron because the official feed is persistent WebSocket based. Adding a dedicated persistent collector would be a separate architecture decision.
 
+### Structural reward semantics — r3
+
+Post-r2 runtime analysis found that `rewardRiskRatio`, gross edge and net edge could use `max(distance_to_resistance, ATR fallback)` while `TARGET_ROOM_LOW` used the actual support→resistance room. In 408 reviewed post-r2 decisions, ATR fallback exceeded the detected resistance target in 268 rows; three Model2 rows crossed the configured +0.05% net-edge threshold under the fallback calculation while the actual structural net edge remained negative. No false paper fill was observed because other blockers still prevented execution.
+
+The active engines therefore use `policyRevision=structure-economics-r3` with the existing config revision. R3 keeps engine ids, experiment clock and paper portfolios intact and changes no thresholds:
+- non-breakout setups use the detected resistance distance as the effective reward;
+- ATR projection is allowed only for `upside_breakout` when no forward resistance room exists;
+- R:R, gross/net edge, opportunity scoring, target-room checks and Model2 strong-tranche logic all use the same effective reward;
+- decisions persist `rewardDistancePct` and `rewardSource` so structural target and fallback projection are distinguishable;
+- the Models UI labels `grossRiskBudgetPct` as a portfolio risk budget rather than an asset allocation budget.
+
 ## Known non-blocking follow-ups
 
 - Confirmation modules still call shared DB helpers directly; a later persistence-interface cleanup may improve the model/platform boundary.

@@ -291,6 +291,8 @@ export interface JevDecision {
   successProbability?: number;
   roundTripCostPct?: number;
   targetDistancePct?: number;
+  rewardDistancePct?: number;
+  rewardSource?: "resistance" | "atr_projection";
   invalidationDistancePct?: number;
   rewardRiskRatio?: number;
   rotationAction?: string;

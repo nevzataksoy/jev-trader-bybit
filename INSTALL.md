@@ -67,7 +67,7 @@ Açık kurulum isterseniz:
 npm run db:setup
 ```
 
-Uygulama runtime sırasında da tabloları `CREATE TABLE IF NOT EXISTS` ile doğrular. Bu nedenle Vercel deploy/build adımı doğrudan migration çalıştırmaz; ilk başarılı DB kullanan runtime çağrısı şemayı otomatik bootstrap edebilir.
+Vercel Production build sırasında şema otomatik uygulanır. Preview ve yerel build bu adımı atlar; runtime endpointleri tablo oluşturmaz.
 
 ### 6. A/B ayarları
 
@@ -190,7 +190,7 @@ Tarihsel local backtest/simulation komutları bu temiz projede bulunmaz.
 4. `AB_ENGINE_IDS=model1-v1,model2-v2` ve `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2` kullanın.
 5. İlk aşamada `TRADING_ENABLED=false`, `EXCHANGE_EXECUTION_ENGINE=none` bırakın.
 6. Deploy tamamlandıktan sonra `/api/health` çağırın.
-7. Yetkili bir `/api/cron` çağrısı yapın. DB tamamen boşsa bu çağrı runtime schema bootstrap'ını tetikleyebilir.
+7. Yetkili bir `/api/cron` çağrısı yapın. Runtime şema oluşturmaz; Production build sırasında şemanın başarıyla uygulandığından emin olun.
 8. `/api/state` yanıtının bağlı Bybit hesabı/platform durumunu, `/models` ve `/api/models/state` yanıtının ise A/B `engine_runs` / paper karar geçmişini temsil ettiğini doğrulayın. `/api/models/state` içindeki `activeEngines`, `availableEngines` ve deney motorları aktif çift olan `model1-v1` ile `model2-v2` değerlerini doğru göstermelidir.
 9. DB'de `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots`, `engine_orders` tablolarının oluştuğunu kontrol edin.
 10. cron-job.org Test Run yapın ve HTTP 200 doğrulayın.
@@ -264,7 +264,7 @@ Optional explicit provisioning:
 npm run db:setup
 ```
 
-Runtime initialization also uses `CREATE TABLE IF NOT EXISTS`. Vercel build itself does not perform a DB migration; the first runtime request that requires the database can bootstrap the schema.
+Vercel Production builds apply the schema automatically. Preview and local builds skip that step, and runtime requests never create tables.
 
 ### 6. A/B configuration
 
@@ -322,7 +322,7 @@ Historical local backtest/simulation commands are intentionally not part of this
 5. Set `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2`.
 6. Keep `TRADING_ENABLED=false` and `EXCHANGE_EXECUTION_ENGINE=none` initially.
 7. Verify `/api/health`.
-8. Send one authenticated `/api/cron` request; on an empty database this can trigger runtime schema bootstrap.
+8. Send one authenticated `/api/cron` request. Runtime does not bootstrap the schema; confirm the Production build applied it successfully.
 9. Verify `/api/state` represents the configured Bybit account/platform surface while `/models` and `/api/models/state` represent A/B `engine_runs` and paper decision history. `activeEngines`, `availableEngines`, and the persisted experiment engines should contain only `model1-v1` and `model2-v2`.
 10. Confirm the experiment and engine tables exist in PostgreSQL.
 11. Run cron-job.org Test Run and confirm HTTP 200.

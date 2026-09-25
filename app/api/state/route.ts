@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAccountEnvironment, getTradingConfig } from "@/lib/config";
 import {
-  ensureDatabase,
   getDailyPortfolioHistory,
   getRecentRuns,
   getStoredOrders,
@@ -74,7 +73,6 @@ export async function GET(request: Request) {
   let recentRuns: DashboardState["recentRuns"] = [];
   if (isDatabaseConfigured()) {
     try {
-      await ensureDatabase();
       await upsertOrders(liveOrders);
       [history, storedOrders, recentRuns] = await Promise.all([
         getDailyPortfolioHistory(90, historyTimeZone),

@@ -1,5 +1,5 @@
 import type { ExecutionPlan } from "../risk";
-import { ensureDatabase, getSql, isDatabaseConfigured } from "../db";
+import { getSql, isDatabaseConfigured } from "../db";
 import { asPostgresJson } from "../postgres-json";
 import type {
   AssetId,
@@ -164,7 +164,6 @@ export async function ensureStrategyExperiment(
   config: ExperimentConfiguration,
   engineVersions: Record<StrategyEngineId, string>,
 ) {
-  await ensureDatabase();
   const sql = getSql();
   await sql.begin(async (transaction) => {
     const requestedEngineVersions = Object.fromEntries(Object.entries(engineVersions).sort(([left], [right]) => left.localeCompare(right)));
@@ -231,7 +230,6 @@ export async function ensureEngineRevision(input: {
 }
 
 export async function saveSharedMarketSnapshot(input: SharedSnapshotInput) {
-  await ensureDatabase();
   const sql = getSql();
   const dataQuality = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, input.indicators[asset].data_quality]));
   const rows = await sql`
@@ -517,7 +515,6 @@ export async function getModelsDashboardState(
   requestedExperimentId?: string,
 ): Promise<Omit<ModelsDashboardState, "generatedAt" | "runMode" | "activeEngines" | "availableEngines" | "exchangeExecutionEngine" | "exchangeRoutingForcedOff" | "database" | "message">> {
   if (!isDatabaseConfigured()) return { experiment: null, engines: [], equity: [], orders: [], runs: [] };
-  await ensureDatabase();
   const sql = getSql();
   const experimentRows = requestedExperimentId
     ? await sql`SELECT * FROM strategy_experiments WHERE experiment_id = ${requestedExperimentId} LIMIT 1`

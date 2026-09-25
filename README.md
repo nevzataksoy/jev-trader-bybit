@@ -152,7 +152,7 @@ Temiz proje tek şema kaynağı olarak `database/schema.sql` kullanır. Geçmiş
 
 Runtime veritabanı erişimi provider-agnostic PostgreSQL protokolü kullanır. Vercel + Supabase için `DATABASE_URL` değerinde Supabase **Transaction pooler** (port `6543`) URI'si tercih edilir. Postgres.js istemcisinde prepared statements kapalıdır; bu, Supabase transaction pooling ile uyumludur. Uygulama Supabase Data API/Auth/Storage kullanmadığı için `SUPABASE_URL`, anon key veya service-role key gerekmez.
 
-Uygulama runtime sırasında `CREATE TABLE IF NOT EXISTS` ile gerekli tabloları doğrular. Bu nedenle Vercel build aşamasının kendisi DB migration çalıştırmaz; fakat ilk DB kullanan runtime çağrısı, örneğin `/api/cron`, şemayı otomatik oluşturabilir. `/api/health` artık DB bağlantısını gerçek bir `SELECT 1` ile doğrular ve secret göstermeden provider/connection mode bilgisini döndürür.
+Vercel Production build aşaması `database/schema.sql` dosyasını `DATABASE_URL` üzerinden uygular. Preview ve yerel build'ler bu otomatik adımı atlar. Runtime endpointleri DDL çalıştırmaz; yalnızca mevcut şemayı kullanır. `/api/health` artık DB bağlantısını gerçek bir `SELECT 1` ile doğrular ve secret göstermeden provider/connection mode bilgisini döndürür.
 
 İsterseniz deploy öncesinde açıkça:
 
@@ -305,7 +305,7 @@ During A/B runs, the main `bot_runs` record is not the authoritative model-decis
 
 Runtime access uses provider-agnostic PostgreSQL. For Vercel + Supabase, set `DATABASE_URL` to the Supabase **Transaction pooler** URI on port `6543`. Prepared statements are disabled in Postgres.js for transaction-pooler compatibility. The app does not use the Supabase Data API/Auth/Storage, so no `SUPABASE_URL`, anon key, or service-role key is required.
 
-Runtime DB initialization uses `CREATE TABLE IF NOT EXISTS`. Vercel build itself does not run a migration, but the first runtime path that needs the database can bootstrap the schema automatically. `/api/health` performs a live `SELECT 1` readiness check and reports provider/connection mode without exposing credentials. `npm run db:setup` remains available for explicit provisioning.
+Vercel Production builds apply `database/schema.sql` through `DATABASE_URL`. Preview and local builds skip this automatic provisioning step. Runtime endpoints do not execute schema DDL; they only use the provisioned schema. `/api/health` performs a live `SELECT 1` readiness check and reports provider/connection mode without exposing credentials. `npm run db:setup` remains available for explicit provisioning.
 
 The old local historical backtest/simulation subsystem has been removed.
 

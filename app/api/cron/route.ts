@@ -63,6 +63,31 @@ async function runEndOfCycleCleanup(cycleKey: string) {
   }
 }
 
+async function timedStep<T>(cycleKey: string, step: string, task: () => Promise<T>, timeoutMs = 15_000): Promise<T> {
+  const startedAt = Date.now();
+  console.info("[cron-step]", { cycleKey, step, event: "start" });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${step} timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+    const result = await Promise.race([task(), timeout]);
+    console.info("[cron-step]", { cycleKey, step, event: "complete", durationMs: Date.now() - startedAt });
+    return result;
+  } catch (error) {
+    console.error("[cron-step]", {
+      cycleKey,
+      step,
+      event: "failed",
+      durationMs: Date.now() - startedAt,
+      message: getSafeErrorMessage(error, `${step} failed`),
+    });
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function routingReason(reason: ReturnType<typeof getExchangeRoutingState>["reason"]) {
   if (reason === "trading_disabled") return "TRADING_ENABLED is not true; decision recorded without an order.";
   if (reason === "execution_engine_none") return "EXCHANGE_EXECUTION_ENGINE is none; decision recorded without an order.";
@@ -95,18 +120,18 @@ export async function GET(request: Request) {
     const trading = getTradingConfig();
     const strategy = getStrategyRuntimeConfig();
     const [prices, activity, fetchedIndicators, fees, cachedMacro, previousMarketState] = await Promise.all([
-      getSpotPrices(),
-      getSpotActivity(),
-      new MarketDataAggregator().fetchAll(),
-      getSpotFeeRates(),
-      getLatestMacroSnapshot(),
-      getLatestMarketState(),
+      timedStep(cycleKey, "spot-prices", () => getSpotPrices()),
+      timedStep(cycleKey, "spot-activity", () => getSpotActivity()),
+      timedStep(cycleKey, "market-indicators", () => new MarketDataAggregator().fetchAll(), 25_000),
+      timedStep(cycleKey, "spot-fees", () => getSpotFeeRates()),
+      timedStep(cycleKey, "cached-macro", () => getLatestMacroSnapshot(), 10_000),
+      timedStep(cycleKey, "previous-market-state", () => getLatestMarketState(), 10_000),
     ]);
     const indicators = stabilizeMamisPhases(fetchedIndicators, previousMarketState);
     let macro = cachedMacro;
     if (!macro || !isMacroCacheFresh(macro, Date.now(), trading.macroCacheHours)) {
       try {
-        macro = await fetchMacroState();
+        macro = await timedStep(cycleKey, "macro-fetch", () => fetchMacroState(), 15_000);
         await saveMacroSnapshot(macro);
       } catch (error) {
         const message = getSafeErrorMessage(error, "Macro data unavailable");
@@ -114,7 +139,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const balances = await getSpotBalances(prices);
+    const balances = await timedStep(cycleKey, "spot-balances", () => getSpotBalances(prices));
     const capturedAt = new Date().toISOString();
     const totalPortfolioUsdt = calculatePortfolioTotal(balances);
     await Promise.all([

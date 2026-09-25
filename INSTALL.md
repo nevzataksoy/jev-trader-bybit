@@ -7,7 +7,7 @@
 - Node.js 20+
 - Bybit Demo Trading API anahtarı
 - TypeSafe Jev API anahtarı
-- Neon/PostgreSQL
+- Supabase/PostgreSQL
 - cron-job.org hesabı
 
 ### 2. Yerel kurulum
@@ -42,13 +42,22 @@ TYPESAFE_API_KEY=...
 JEV_MODEL_NAME=jev-1.13.0
 ```
 
-### 5. PostgreSQL / Neon
+### 5. PostgreSQL / Supabase
 
-Vercel projesine Neon entegrasyonunu bağlayın veya bağlantı adresini manuel ekleyin:
+Supabase Dashboard → **Connect** ekranından iki farklı bağlantı amacı kullanın:
+
+- Vercel runtime için **Transaction pooler** (port `6543`).
+- Veri taşıma / `pg_dump` / `psql` işlemleri için **Session pooler** (port `5432`).
+
+Vercel Production Environment Variables:
 
 ```env
-DATABASE_URL=postgresql://...
+DATABASE_URL=postgresql://postgres.PROJECT_REF:DB_PASSWORD@POOLER_HOST:6543/postgres
 ```
+
+Yeni bir `SUPABASE_URL`, anon key veya service-role key eklemeyin; uygulama Supabase Data API yerine doğrudan PostgreSQL bağlantısı kullanır. Postgres.js tarafında `prepare:false` ayarı transaction pooler ile uyumludur.
+
+Bu uygulama REST/GraphQL Data API kullanmadığı için Supabase **Integrations → Data API** bölümünden Data API'yi kapatmanız önerilir. Açık bırakacaksanız `public` şemasındaki trader tablolarının grants/RLS ayarlarını ayrıca sıkılaştırın.
 
 Temiz projede ayrı migration zinciri yoktur. Nihai şema `database/schema.sql` içindedir.
 
@@ -175,7 +184,7 @@ Tarihsel local backtest/simulation komutları bu temiz projede bulunmaz.
 
 ### 12. Vercel deploy sonrası kontrol sırası
 
-1. Neon entegrasyonunun bağlı olduğunu ve `DATABASE_URL` oluştuğunu doğrulayın.
+1. Vercel Production ortamında `DATABASE_URL` değerinin Supabase Transaction pooler (port `6543`) URI'si olduğunu doğrulayın.
 2. Vercel Production Environment Variables alanını güncel `.env.example` ile eşitleyin.
 3. Eski `model1-blind-*`, `model2-blind-*`, eski strategy parametreleri ve bütün `BACKTEST_*` değişkenlerini Vercel'den kaldırın.
 4. `AB_ENGINE_IDS=model1-v1,model2-v2` ve `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2` kullanın.
@@ -199,7 +208,7 @@ Tarihsel local backtest/simulation komutları bu temiz projede bulunmaz.
 - Node.js 20+
 - Bybit Demo Trading API key
 - TypeSafe Jev API key
-- Neon/PostgreSQL
+- Supabase/PostgreSQL
 - cron-job.org account
 
 ### 2. Local setup
@@ -230,13 +239,22 @@ TYPESAFE_API_KEY=...
 JEV_MODEL_NAME=jev-1.13.0
 ```
 
-### 5. PostgreSQL / Neon
+### 5. PostgreSQL / Supabase
 
-Attach Neon to the Vercel project or provide:
+Use two connection modes from Supabase Dashboard → **Connect**:
+
+- **Transaction pooler** (port `6543`) for Vercel runtime.
+- **Session pooler** (port `5432`) for migration / `pg_dump` / `psql` operations.
+
+Set Vercel Production:
 
 ```env
-DATABASE_URL=postgresql://...
+DATABASE_URL=postgresql://postgres.PROJECT_REF:DB_PASSWORD@POOLER_HOST:6543/postgres
 ```
+
+Do not add `SUPABASE_URL`, an anon key, or a service-role key for this application; it connects directly over PostgreSQL. Postgres.js already uses `prepare:false` for transaction-pooler compatibility.
+
+Because this application does not use the REST/GraphQL Data API, disabling **Integrations → Data API** is recommended. If you keep it enabled, explicitly harden grants/RLS for the trader tables in `public`.
 
 The clean project has no migration history chain. `database/schema.sql` contains the final baseline schema.
 
@@ -297,7 +315,7 @@ Historical local backtest/simulation commands are intentionally not part of this
 
 ### 10. Post-deploy Vercel checklist
 
-1. Verify the Neon integration and `DATABASE_URL`.
+1. Verify Vercel Production `DATABASE_URL` uses the Supabase Transaction pooler URI on port `6543`.
 2. Synchronize Production Environment Variables with the current `.env.example`.
 3. Remove old `model1-blind-*`, `model2-blind-*`, old strategy variables and every `BACKTEST_*` variable.
 4. Set `AB_ENGINE_IDS=model1-v1,model2-v2`.
@@ -305,7 +323,7 @@ Historical local backtest/simulation commands are intentionally not part of this
 6. Keep `TRADING_ENABLED=false` and `EXCHANGE_EXECUTION_ENGINE=none` initially.
 7. Verify `/api/health`.
 8. Send one authenticated `/api/cron` request; on an empty database this can trigger runtime schema bootstrap.
-9. Verify `/api/state` represents the configured Bybit account/platform surface while `/models` and `/api/models/state` represent A/B `engine_runs` and paper decision history. `activeEngines`, `availableEngines`, and the persisted experiment engines should contain only `model1-v1` and `model2-v1`.
+9. Verify `/api/state` represents the configured Bybit account/platform surface while `/models` and `/api/models/state` represent A/B `engine_runs` and paper decision history. `activeEngines`, `availableEngines`, and the persisted experiment engines should contain only `model1-v1` and `model2-v2`.
 10. Confirm the experiment and engine tables exist in PostgreSQL.
 11. Run cron-job.org Test Run and confirm HTTP 200.
 12. Observe multiple paper cycles before making any execution-mode change.

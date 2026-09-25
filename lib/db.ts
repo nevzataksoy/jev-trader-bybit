@@ -20,15 +20,56 @@ import type {
 let sqlClient: ReturnType<typeof postgres> | null = null;
 let schemaPromise: Promise<void> | null = null;
 
-export function isDatabaseConfigured() {
+export type DatabaseProvider = "supabase" | "neon" | "postgresql";
+export type DatabaseConnectionMode = "transaction_pooler" | "session_pooler" | "direct";
+
+export interface DatabaseConnectionInfo {
+  configured: boolean;
+  provider: DatabaseProvider | null;
+  connectionMode: DatabaseConnectionMode | null;
+}
+
+export function getDatabaseConnectionInfo(): DatabaseConnectionInfo {
   const connectionString = process.env.DATABASE_URL?.trim();
-  if (!connectionString) return false;
+  if (!connectionString) return { configured: false, provider: null, connectionMode: null };
   try {
     const url = new URL(connectionString);
-    return (url.protocol === "postgres:" || url.protocol === "postgresql:")
+    const configured = (url.protocol === "postgres:" || url.protocol === "postgresql:")
       && url.hostname !== "host"
       && url.username !== "user"
       && url.pathname !== "/database";
+    if (!configured) return { configured: false, provider: null, connectionMode: null };
+
+    const hostname = url.hostname.toLowerCase();
+    const isSupabase = hostname.endsWith(".supabase.co")
+      || hostname.endsWith(".supabase.com")
+      || hostname.includes(".pooler.supabase.");
+    const provider: DatabaseProvider = isSupabase
+      ? "supabase"
+      : hostname.endsWith(".neon.tech") ? "neon" : "postgresql";
+    const port = url.port || "5432";
+    const connectionMode: DatabaseConnectionMode = isSupabase && port === "6543"
+      ? "transaction_pooler"
+      : isSupabase && hostname.includes(".pooler.supabase.") && port === "5432"
+        ? "session_pooler"
+        : "direct";
+
+    return { configured: true, provider, connectionMode };
+  } catch {
+    return { configured: false, provider: null, connectionMode: null };
+  }
+}
+
+export function isDatabaseConfigured() {
+  return getDatabaseConnectionInfo().configured;
+}
+
+export async function checkDatabaseConnection() {
+  if (!isDatabaseConfigured()) return false;
+  try {
+    const sql = getSql();
+    const rows = await sql`SELECT 1 AS ok`;
+    return Number(rows[0]?.ok ?? 0) === 1;
   } catch {
     return false;
   }

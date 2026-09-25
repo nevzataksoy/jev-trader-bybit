@@ -80,7 +80,7 @@ Model2 V2 is an evidence-driven semantic revision, not a threshold loosening:
 - keeps the same numeric default thresholds as Model2 V1
 - persists useful V2 diagnostics in decision JSON such as rotation action/suitability/thesis health and gross expected edge
 
-Model1 V1 and Model2 V2 are the active engines. Their current in-place policy revision is `structure-economics-r2` with config revision `2026-09-24-r1`; earlier runs remain distinguishable through revision audit metadata.
+Model1 V1 and Model2 V2 are the active engines. Their current in-place policy revision is `structure-economics-r3` with config revision `2026-09-24-r1`; earlier runs remain distinguishable through revision audit metadata.
 
 To start a new V2 comparison after deployment, explicitly use a new experiment, for example:
 
@@ -119,6 +119,8 @@ The platform owns:
 ## Database and API contract
 
 Single schema source: `database/schema.sql`. Runtime initialization uses `CREATE TABLE IF NOT EXISTS`.
+
+Database runtime is provider-agnostic PostgreSQL. Production targets Supabase from Vercel using the Transaction pooler (port 6543); Postgres.js must keep prepared statements disabled. Migration/admin tools should use the Supabase Session pooler (port 5432). No Supabase Data API keys are part of the application contract.
 
 Important experiment tables:
 

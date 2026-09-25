@@ -1,20 +1,22 @@
 import { NextResponse } from "next/server";
 import { getAccountEnvironment, getTradingConfig } from "@/lib/config";
-import { isDatabaseConfigured } from "@/lib/db";
+import { checkDatabaseConnection, getDatabaseConnectionInfo } from "@/lib/db";
 import { hasBybitCredentials } from "@/lib/providers/bybit";
 import { getExchangeRoutingState, getStrategyRuntimeConfig } from "@/lib/strategy/config";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
+export async function GET() {
   const strategy = getStrategyRuntimeConfig();
   const activeEngine = strategy.activeEngines[0];
   const routing = getExchangeRoutingState(activeEngine, strategy, getTradingConfig().enabled);
+  const database = getDatabaseConnectionInfo();
+  const databaseReachable = database.configured && await checkDatabaseConnection();
   const ready = Boolean(
     process.env.CRON_SECRET?.trim()
       && process.env.TYPESAFE_API_KEY?.trim()
       && hasBybitCredentials()
-      && isDatabaseConfigured(),
+      && databaseReachable,
   );
   return NextResponse.json({
     ok: ready,
@@ -28,11 +30,17 @@ export function GET() {
     exchangeExecutionEngine: strategy.executionEngine,
     exchangeRoutingAllowed: routing.allowed,
     exchangeRoutingReason: routing.reason,
+    databaseConnection: {
+      configured: database.configured,
+      reachable: databaseReachable,
+      provider: database.provider,
+      mode: database.connectionMode,
+    },
     checks: {
       cronSecret: Boolean(process.env.CRON_SECRET?.trim()),
       typesafe: Boolean(process.env.TYPESAFE_API_KEY?.trim()),
       bybit: hasBybitCredentials(),
-      database: isDatabaseConfigured(),
+      database: databaseReachable,
     },
   }, { status: ready ? 200 : 503 });
 }

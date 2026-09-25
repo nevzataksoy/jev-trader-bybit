@@ -57,6 +57,8 @@ DATABASE_URL=postgresql://postgres.PROJECT_REF:DB_PASSWORD@POOLER_HOST:6543/post
 
 Yeni bir `SUPABASE_URL`, anon key veya service-role key eklemeyin; uygulama Supabase Data API yerine doğrudan PostgreSQL bağlantısı kullanır. Postgres.js tarafında `prepare:false` ayarı transaction pooler ile uyumludur.
 
+Bu uygulama REST/GraphQL Data API kullanmadığı için Supabase **Integrations → Data API** bölümünden Data API'yi kapatmanız önerilir. Açık bırakacaksanız `public` şemasındaki trader tablolarının grants/RLS ayarlarını ayrıca sıkılaştırın.
+
 Temiz projede ayrı migration zinciri yoktur. Nihai şema `database/schema.sql` içindedir.
 
 Açık kurulum isterseniz:
@@ -251,6 +253,8 @@ DATABASE_URL=postgresql://postgres.PROJECT_REF:DB_PASSWORD@POOLER_HOST:6543/post
 ```
 
 Do not add `SUPABASE_URL`, an anon key, or a service-role key for this application; it connects directly over PostgreSQL. Postgres.js already uses `prepare:false` for transaction-pooler compatibility.
+
+Because this application does not use the REST/GraphQL Data API, disabling **Integrations → Data API** is recommended. If you keep it enabled, explicitly harden grants/RLS for the trader tables in `public`.
 
 The clean project has no migration history chain. `database/schema.sql` contains the final baseline schema.
 

@@ -79,7 +79,7 @@ export function getSql() {
   if (!connectionString) throw new Error("DATABASE_URL is not configured.");
   if (!sqlClient) {
     sqlClient = postgres(connectionString, {
-      max: 1,
+      max: 4,
       idle_timeout: 20,
       connect_timeout: 10,
       prepare: false,
@@ -88,14 +88,9 @@ export function getSql() {
   return sqlClient;
 }
 
-export async function ensureDatabase() {
-  const sql = getSql();
-  await sql`SELECT 1 AS ok`;
-}
 
 export async function saveMacroSnapshot(state: MacroState) {
   if (!state.source_observed_at || state.data_quality === "unavailable") return;
-  await ensureDatabase();
   const sql = getSql();
   await sql`
     INSERT INTO macro_snapshots (source_observed_at, collected_at, state)
@@ -108,7 +103,6 @@ export async function saveMacroSnapshot(state: MacroState) {
 
 export async function getLatestMacroSnapshot(): Promise<MacroState | null> {
   if (!isDatabaseConfigured()) return null;
-  await ensureDatabase();
   const sql = getSql();
   const rows = await sql`SELECT state FROM macro_snapshots ORDER BY collected_at DESC LIMIT 1`;
   return rows.length ? parseJson<MacroState | null>(rows[0].state, null) : null;
@@ -116,7 +110,6 @@ export async function getLatestMacroSnapshot(): Promise<MacroState | null> {
 
 export async function getLatestMarketState(): Promise<Record<TradeAsset, MarketIndicatorState> | null> {
   if (!isDatabaseConfigured()) return null;
-  await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
     SELECT market_state
@@ -131,7 +124,6 @@ export async function getLatestMarketState(): Promise<Record<TradeAsset, MarketI
 }
 
 export async function beginBotRun(cycleKey: string) {
-  await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
     INSERT INTO bot_runs (cycle_key, started_at, status)
@@ -146,7 +138,6 @@ export async function beginBotRun(cycleKey: string) {
 }
 
 export async function savePortfolioSnapshot(cycleKey: string, snapshot: PortfolioSnapshot) {
-  await ensureDatabase();
   const sql = getSql();
   await sql`
     INSERT INTO portfolio_snapshots (
@@ -186,7 +177,6 @@ export async function completeBotRun(
 
 export async function failBotRun(cycleKey: string, error: unknown) {
   if (!isDatabaseConfigured()) return;
-  await ensureDatabase();
   const sql = getSql();
   const message = getSafeErrorMessage(error, "Unknown cron failure");
   await sql`
@@ -204,7 +194,6 @@ function timestampFromMillis(value: string | null) {
 
 export async function upsertOrders(orders: OrderHistoryItem[]) {
   if (!isDatabaseConfigured() || orders.length === 0) return;
-  await ensureDatabase();
   const sql = getSql();
   for (const order of orders) {
     const createdAt = timestampFromMillis(order.createdTime);
@@ -286,7 +275,6 @@ export async function cleanupDatabase(): Promise<DatabaseCleanupResult> {
       orphanedEngineRevisions: 0,
     };
   }
-  await ensureDatabase();
   const sql = getSql();
   const retention = getDatabaseMaintenanceConfig();
   return sql.begin(async (transaction) => {
@@ -400,7 +388,6 @@ export async function getDailyPortfolioHistory(
   timeZone: "UTC" | "Europe/Istanbul" = "UTC",
 ): Promise<DailyPortfolioPoint[]> {
   if (!isDatabaseConfigured()) return [];
-  await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
     WITH candidate_snapshots AS (
@@ -450,7 +437,6 @@ export async function getDailyPortfolioHistory(
 
 export async function getStoredOrders(limit = 200): Promise<OrderHistoryItem[]> {
   if (!isDatabaseConfigured()) return [];
-  await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
     SELECT * FROM spot_orders ORDER BY created_at DESC LIMIT ${limit}
@@ -486,7 +472,6 @@ export async function getPortfolioRiskContext(currentEquityUsdt: number): Promis
       completed_orders_24h: 0,
     };
   }
-  await ensureDatabase();
   const sql = getSql();
   const [snapshots, orderCounts] = await Promise.all([
     sql`
@@ -519,7 +504,6 @@ export async function getPortfolioRiskContext(currentEquityUsdt: number): Promis
 
 export async function getRecentRuns(limit = 12): Promise<BotRunSummary[]> {
   if (!isDatabaseConfigured()) return [];
-  await ensureDatabase();
   const sql = getSql();
   const rows = await sql`
     SELECT cycle_key, started_at, completed_at, status, model, market_state, decision_context, decisions, executions, error

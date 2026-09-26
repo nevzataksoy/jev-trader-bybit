@@ -1,6 +1,7 @@
 import { TRADE_ASSETS } from "../../../../types";
 import type { TradeAsset } from "../../../../types";
 import type { StrategyEngine } from "../../../types";
+import { attachShadowProbabilityForecasts } from "../../../platform/probabilistic-shadow";
 import { finalizeBlindRotationEvidence } from "./analysis";
 import { applyConfirmation } from "./confirmation";
 import { getModelConfig } from "./config";
@@ -13,7 +14,7 @@ export const model2V2Engine: StrategyEngine = {
   id: "model2-v2",
   family: "model2",
   version: "v2",
-  policyRevision: "structure-economics-r6",
+  policyRevision: "structure-economics-r7",
   configRevision: "2026-09-24-r1",
   orderDecisions,
   planExecution: (decision, context) => planModelExecution(decision, context, getModelConfig()),
@@ -40,7 +41,7 @@ export const model2V2Engine: StrategyEngine = {
       feePctByAsset,
       config,
     );
-    const decisions = await applyConfirmation({
+    const confirmed = await applyConfirmation({
       scopeId: runtime.scopeId,
       experimentId: runtime.experimentId,
       engineId: "model2-v2",
@@ -49,6 +50,7 @@ export const model2V2Engine: StrategyEngine = {
       decisions: preliminary,
       indicators: engineState.indicators,
     });
+    const decisions = attachShadowProbabilityForecasts(confirmed, engineState.indicators);
     return {
       engineId: "model2-v2",
       engineVersion: "v2",

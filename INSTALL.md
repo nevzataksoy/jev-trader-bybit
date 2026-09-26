@@ -1,14 +1,18 @@
-# Kurulum ve Vercel Yayını
+# Kurulum ve Vercel Yayını / Installation and Vercel Deployment
 
 ## Türkçe
 
 ### 1. Gereksinimler
 
 - Node.js 20+
+- npm
 - Bybit Demo Trading API anahtarı
 - TypeSafe Jev API anahtarı
-- Supabase/PostgreSQL
-- cron-job.org hesabı
+- Supabase veya uyumlu PostgreSQL
+- Vercel projesi
+- 15 dakikalık schedule için cron-job.org veya eşdeğer cron servisi
+
+Gerçek secret değerlerini GitHub reposuna veya dokümantasyona yazmayın.
 
 ### 2. Yerel kurulum
 
@@ -19,11 +23,11 @@ npm ci
 cp .env.example .env.local
 ```
 
-Gerçek secret değerlerini repoya yazmayın.
+Windows PowerShell kullanıyorsanız `.env.example` dosyasını `.env.local` olarak manuel kopyalayabilirsiniz.
 
 ### 3. Bybit Demo Trading
 
-`.env.local` veya Vercel Production Environment Variables:
+Yerel `.env.local` veya Vercel Production Environment Variables:
 
 ```env
 BYBIT_ACCOUNT_ENV=demo
@@ -33,7 +37,7 @@ TRADING_ENABLED=false
 ALLOW_LIVE_TRADING=false
 ```
 
-Demo Trading anahtarları `https://api-demo.bybit.com` üzerinde kullanılır.
+Demo Trading private API işlemleri demo hesap üzerinde çalışır. A/B modunda gerçek exchange routing ayrıca `EXCHANGE_EXECUTION_ENGINE=none` ile kapalı tutulur.
 
 ### 4. TypeSafe Jev
 
@@ -42,36 +46,44 @@ TYPESAFE_API_KEY=...
 JEV_MODEL_NAME=jev-1.13.0
 ```
 
+Jev'e gerçek asset kimliği gönderilmez. BTC / ETH / XAUT uygulama içinde anonim `candidate_1` / `candidate_2` / `candidate_3` slotlarına eşlenir.
+
 ### 5. PostgreSQL / Supabase
 
-Supabase Dashboard → **Connect** ekranından iki farklı bağlantı amacı kullanın:
+Supabase Dashboard → Connect ekranında iki bağlantı amacı kullanılır:
 
-- Vercel runtime için **Transaction pooler** (port `6543`).
-- Veri taşıma / `pg_dump` / `psql` işlemleri için **Session pooler** (port `5432`).
+- Vercel runtime: Transaction pooler, port `6543`.
+- `pg_dump`, `psql`, veri taşıma ve admin işlemleri: Session pooler, port `5432`.
 
-Vercel Production Environment Variables:
+Vercel Production örneği:
 
 ```env
 DATABASE_URL=postgresql://postgres.PROJECT_REF:DB_PASSWORD@POOLER_HOST:6543/postgres
 ```
 
-Yeni bir `SUPABASE_URL`, anon key veya service-role key eklemeyin; uygulama Supabase Data API yerine doğrudan PostgreSQL bağlantısı kullanır. Postgres.js tarafında `prepare:false` ayarı transaction pooler ile uyumludur.
+Uygulama doğrudan PostgreSQL protokolü kullanır. Aşağıdaki Supabase API secret'ları gerekmez:
 
-Bu uygulama REST/GraphQL Data API kullanmadığı için Supabase **Integrations → Data API** bölümünden Data API'yi kapatmanız önerilir. Açık bırakacaksanız `public` şemasındaki trader tablolarının grants/RLS ayarlarını ayrıca sıkılaştırın.
+- `SUPABASE_URL`
+- anon key
+- service-role key
 
-Temiz projede ayrı migration zinciri yoktur. Nihai şema `database/schema.sql` içindedir.
+Postgres.js `prepare:false` kullanır; bu ayar Transaction pooler ile uyumludur.
 
-Açık kurulum isterseniz:
+Temiz şema kaynağı:
+
+```text
+database/schema.sql
+```
+
+İsteğe bağlı açık kurulum:
 
 ```bash
 npm run db:setup
 ```
 
-Vercel Production build sırasında şema otomatik uygulanır. Preview ve yerel build bu adımı atlar; runtime endpointleri tablo oluşturmaz.
+Production build sırasında şema `DATABASE_URL` üzerinden idempotent olarak uygulanır. Preview ve local build bu production provisioning davranışını çalıştırmaz. Runtime endpointleri şema migration'ı başlatmaz.
 
-### 6. A/B ayarları
-
-İlk deploy için:
+### 6. Aktif A/B experiment ayarları
 
 ```env
 STRATEGY_RUN_MODE=ab_test
@@ -83,11 +95,11 @@ AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
 ```
 
-A/B modunda gerçek exchange routing her durumda kapalıdır.
+42 günlük experiment aktifken `AB_EXPERIMENT_ID`, experiment başlangıç tarihi veya paper portföyler davranış revizyonu için sıfırlanmaz. R5/R6/R7 gibi revizyonlar `engine_revisions` üzerinden audit edilir.
 
-### 7. Platform safety değişkenleri
+### 7. Platform hard-safety değişkenleri
 
-Bunlar modellerin stratejik tercihleri değil, uygulamanın ortak hard limitleridir:
+Bunlar model tercihi değil, ortak operasyonel limitlerdir:
 
 ```env
 MIN_CONFIDENCE_THRESHOLD=0.72
@@ -124,34 +136,53 @@ MODEL1_V1_WAIT_CLOSE_TTL_MINUTES=30
 MODEL1_V1_WAIT_RETEST_TTL_MINUTES=120
 ```
 
-### 9. Model2 V1 / V2 parametreleri
+### 9. Model2 parametreleri
+
+Aktif engine `model2-v2`'dir. V2 parametreleri:
 
 ```env
-MODEL2_V1_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.15
-MODEL2_V1_STRONG_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.20
-MODEL2_V1_BUY_PCT_OF_USDT=0.20
-MODEL2_V1_SELL_PCT_OF_HOLDING=0.25
-MODEL2_V1_TARGET_DAILY_VOLATILITY_PCT=3
-MODEL2_V1_MIN_BEAR_REBOUND_SCORE=0.62
-MODEL2_V1_ALLOCATION_DEADBAND_PCT=3
-MODEL2_V1_MIN_DIRECTIONAL_EDGE=0.15
-MODEL2_V1_MIN_SETUP_SCORE=2.00
-MODEL2_V1_MIN_EXPECTED_NET_EDGE_PCT=0.05
-MODEL2_V1_MIN_LIQUIDITY_PROBABILITY=0.55
-MODEL2_V1_DISORDERLY_PROBABILITY=0.70
-MODEL2_V1_CUT_POSITION_PROBABILITY=0.72
-MODEL2_V1_WAIT_CLOSE_TTL_MINUTES=30
-MODEL2_V1_WAIT_RETEST_TTL_MINUTES=120
+MODEL2_V2_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.15
+MODEL2_V2_STRONG_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.20
+MODEL2_V2_BUY_PCT_OF_USDT=0.20
+MODEL2_V2_SELL_PCT_OF_HOLDING=0.25
+MODEL2_V2_TARGET_DAILY_VOLATILITY_PCT=3
+MODEL2_V2_MIN_BEAR_REBOUND_SCORE=0.62
+MODEL2_V2_ALLOCATION_DEADBAND_PCT=3
+MODEL2_V2_MIN_DIRECTIONAL_EDGE=0.15
+MODEL2_V2_MIN_SETUP_SCORE=2.00
+MODEL2_V2_MIN_EXPECTED_NET_EDGE_PCT=0.05
+MODEL2_V2_MIN_LIQUIDITY_PROBABILITY=0.55
+MODEL2_V2_DISORDERLY_PROBABILITY=0.70
+MODEL2_V2_CUT_POSITION_PROBABILITY=0.72
+MODEL2_V2_WAIT_CLOSE_TTL_MINUTES=30
+MODEL2_V2_WAIT_RETEST_TTL_MINUTES=120
 ```
 
-Yeni bir model/version kendi prefix'li parametrelerini kendi `config.ts` dosyasında tanımlar.
+Repo `model2-v1` kodunu ve `MODEL2_V1_*` örneklerini tarihsel/alternatif model sürümü olarak tutabilir; aktif A/B pair `AB_ENGINE_IDS` ile belirlenir.
 
+### 10. R6 candidate plan ve R7 shadow probability
 
-Aktif 42 günlük experiment sırasında aynı engine kimlikleri ve paper portföyler korunur. Onaylı davranış/config revizyonları `engine_revisions` tablosunda tekil audit kaydı olarak tutulur; `engine_runs.revision_id` ile cycle bazında izlenir. Revision değişikliği experiment başlangıç/bitiş saatini sıfırlamaz.
+R6/R7 için yeni environment variable gerekmez.
 
-Sabit `MIN_TRADABLE_RANGE_TO_COST_RATIO` artık kullanılmaz. Round-trip fee/spread/slippage maliyeti modelin support→resistance hedef ekonomisinde hesaplanır; platform yalnız operasyonel hard safety kontrollerini uygular.
+Candidate plan uygulama tarafından mevcut market state ve transaction-cost verisinden oluşturulur. R7 shadow olasılıkları final model kararından sonra yalnız telemetry olarak eklenir:
 
-### 10. Retention ve cron
+```text
+executionAuthoritative=false
+status=uncalibrated_shadow
+horizonMinutes=240
+```
+
+Bu alanlar trade execution'a bağlanmamalıdır. Yeterli olgun örnek ve calibration analizi oluşmadan shadow forecast'e execution yetkisi verilmemelidir.
+
+R7 calibration raporu:
+
+```bash
+npm run strategy:probability-report
+```
+
+Komut `DATABASE_URL` ister. Yalnız `shadowForecast` taşıyan ve yaklaşık dört saatlik geleceği olgunlaşmış decision kayıtlarını skorlar. Rapor 15 dakikalık snapshot'lardan first-touch yaklaşımı kullandığı için intrabar sıralamayı kesin göremez.
+
+### 11. Retention ve cron
 
 ```env
 BOT_RUN_RETENTION_DAYS=45
@@ -162,56 +193,68 @@ EXPERIMENT_DETAIL_RETENTION_DAYS=180
 CRON_SECRET=at_least_32_random_characters
 ```
 
-cron-job.org ayarı:
+cron-job.org örneği:
 
 1. URL: `https://YOUR_PROJECT.vercel.app/api/cron`
 2. Method: `GET`
-3. Schedule: her saat `00, 15, 30, 45`
-4. Time zone: `UTC`
-5. Header: `Authorization: Bearer YOUR_CRON_SECRET`
+3. Schedule: UTC saatinde her saat `00, 15, 30, 45`
+4. Header: `Authorization: Bearer YOUR_CRON_SECRET`
 
-### 11. Yerel doğrulama
+`CRON_SECRET` değerini sohbet, log veya repo içinde paylaşmayın.
+
+### 12. Kalite doğrulaması
 
 ```bash
 npm run lint
 npm run typecheck
 npm run test
 npm run build
-npm run strategy:report
 ```
 
-Tarihsel local backtest/simulation komutları bu temiz projede bulunmaz.
+Tanı raporları:
 
-### 12. Vercel deploy sonrası kontrol sırası
+```bash
+npm run strategy:report
+npm run strategy:probability-report
+```
 
-1. Vercel Production ortamında `DATABASE_URL` değerinin Supabase Transaction pooler (port `6543`) URI'si olduğunu doğrulayın.
-2. Vercel Production Environment Variables alanını güncel `.env.example` ile eşitleyin.
-3. Eski `model1-blind-*`, `model2-blind-*`, eski strategy parametreleri ve bütün `BACKTEST_*` değişkenlerini Vercel'den kaldırın.
-4. `AB_ENGINE_IDS=model1-v1,model2-v2` ve `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2` kullanın.
-5. İlk aşamada `TRADING_ENABLED=false`, `EXCHANGE_EXECUTION_ENGINE=none` bırakın.
-6. Deploy tamamlandıktan sonra `/api/health` çağırın.
-7. Yetkili bir `/api/cron` çağrısı yapın. Runtime şema oluşturmaz; Production build sırasında şemanın başarıyla uygulandığından emin olun.
-8. `/api/state` yanıtının bağlı Bybit hesabı/platform durumunu, `/models` ve `/api/models/state` yanıtının ise A/B `engine_runs` / paper karar geçmişini temsil ettiğini doğrulayın. `/api/models/state` içindeki `activeEngines`, `availableEngines` ve deney motorları aktif çift olan `model1-v1` ile `model2-v2` değerlerini doğru göstermelidir.
-9. DB'de `strategy_experiments`, `shared_market_snapshots`, `engine_runs`, `engine_portfolios`, `engine_equity_snapshots`, `engine_orders` tablolarının oluştuğunu kontrol edin.
-10. cron-job.org Test Run yapın ve HTTP 200 doğrulayın.
-11. Birkaç çevrim boyunca Jev kararlarını, pending/confirmed akışını ve paper equity sonuçlarını gözlemleyin.
-12. A/B testi sırasında gerçek exchange routing'i açmayın.
+`strategy:report` ve `strategy:probability-report` gözlemsel tanı araçlarıdır; tek başına kârlılık kanıtı veya causal backtest değildir.
+
+### 13. Vercel production deploy sonrası kontrol
+
+1. Production `DATABASE_URL` değerinin Supabase Transaction pooler port `6543` kullandığını doğrulayın.
+2. Production Environment Variables değerlerini `.env.example` ile karşılaştırın.
+3. `AB_ENGINE_IDS=model1-v1,model2-v2` ve `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2` değerlerini koruyun.
+4. `TRADING_ENABLED=false`, `ALLOW_LIVE_TRADING=false` ve `EXCHANGE_EXECUTION_ENGINE=none` bırakın.
+5. Deploy tamamlandıktan sonra `/api/health` çağrısının DB bağlantısını başarılı göstermesini doğrulayın.
+6. Yetkili `/api/cron` cycle çalıştırın veya normal schedule'ı bekleyin.
+7. `/api/models/state` üzerinde aynı experiment'in devam ettiğini, yeni run'ın güncel `policyRevision` ve code SHA kullandığını doğrulayın.
+8. `/models` ekranında candidate plan, diagnostics ve varsa `uncalibrated_shadow` forecast telemetry'sini kontrol edin.
+9. Experiment başlangıç/bitiş tarihi veya paper portföyleri davranış revision'ı nedeniyle resetlemeyin.
+
+### 14. Güncel veri kapsamı
+
+Runtime market state price action, multi-timeframe support/resistance, orderbook, trade flow, open interest, funding ve türetilmiş squeeze-risk kanıtı taşır.
+
+Gerçek liquidation event stream / liquidation heatmap henüz runtime state'e eklenmemiştir. Bu entegrasyon ayrı bir geliştirme olarak ele alınmalıdır; mevcut squeeze proxy'leri gerçek liquidation cluster verisi gibi yorumlanmamalıdır.
 
 ---
-
-# Installation and Vercel Deployment
 
 ## English
 
 ### 1. Requirements
 
 - Node.js 20+
-- Bybit Demo Trading API key
+- npm
+- Bybit Demo Trading API credentials
 - TypeSafe Jev API key
-- Supabase/PostgreSQL
-- cron-job.org account
+- Supabase or compatible PostgreSQL
+- a Vercel project
+- cron-job.org or equivalent scheduler for the 15-minute cycle
 
-### 2. Local setup
+Never commit real secrets to GitHub or documentation.
+
+### 2. Local installation
 
 ```bash
 git clone https://github.com/nevzataksoy/jev-trader-bybit.git
@@ -220,9 +263,11 @@ npm ci
 cp .env.example .env.local
 ```
 
-Never commit real secrets.
+On Windows PowerShell you may copy `.env.example` to `.env.local` manually.
 
 ### 3. Bybit Demo Trading
+
+Use these values in local `.env.local` or Vercel Production Environment Variables:
 
 ```env
 BYBIT_ACCOUNT_ENV=demo
@@ -232,6 +277,8 @@ TRADING_ENABLED=false
 ALLOW_LIVE_TRADING=false
 ```
 
+Demo private requests use the demo account. Real exchange routing is also disabled in A/B mode through `EXCHANGE_EXECUTION_ENGINE=none`.
+
 ### 4. TypeSafe Jev
 
 ```env
@@ -239,24 +286,34 @@ TYPESAFE_API_KEY=...
 JEV_MODEL_NAME=jev-1.13.0
 ```
 
+Jev does not receive real asset identity. BTC / ETH / XAUT are mapped internally to anonymous `candidate_1` / `candidate_2` / `candidate_3` slots.
+
 ### 5. PostgreSQL / Supabase
 
-Use two connection modes from Supabase Dashboard → **Connect**:
+Use two Supabase connection modes for different purposes:
 
-- **Transaction pooler** (port `6543`) for Vercel runtime.
-- **Session pooler** (port `5432`) for migration / `pg_dump` / `psql` operations.
+- Vercel runtime: Transaction pooler, port `6543`.
+- `pg_dump`, `psql`, migration/transfer and administrative work: Session pooler, port `5432`.
 
-Set Vercel Production:
+Vercel Production example:
 
 ```env
 DATABASE_URL=postgresql://postgres.PROJECT_REF:DB_PASSWORD@POOLER_HOST:6543/postgres
 ```
 
-Do not add `SUPABASE_URL`, an anon key, or a service-role key for this application; it connects directly over PostgreSQL. Postgres.js already uses `prepare:false` for transaction-pooler compatibility.
+The application connects directly through PostgreSQL and does not require:
 
-Because this application does not use the REST/GraphQL Data API, disabling **Integrations → Data API** is recommended. If you keep it enabled, explicitly harden grants/RLS for the trader tables in `public`.
+- `SUPABASE_URL`
+- anon key
+- service-role key
 
-The clean project has no migration history chain. `database/schema.sql` contains the final baseline schema.
+Postgres.js uses `prepare:false`, which is compatible with transaction pooling.
+
+The clean schema source is:
+
+```text
+database/schema.sql
+```
 
 Optional explicit provisioning:
 
@@ -264,9 +321,9 @@ Optional explicit provisioning:
 npm run db:setup
 ```
 
-Vercel Production builds apply the schema automatically. Preview and local builds skip that step, and runtime requests never create tables.
+Production builds apply the schema through `DATABASE_URL` idempotently. Preview and local builds do not run production provisioning. Runtime endpoints do not initiate schema migrations.
 
-### 6. A/B configuration
+### 6. Active A/B experiment settings
 
 ```env
 STRATEGY_RUN_MODE=ab_test
@@ -278,52 +335,145 @@ AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
 ```
 
-Real exchange routing is hard-disabled in A/B mode.
+Do not reset `AB_EXPERIMENT_ID`, the experiment start time, or paper portfolios for an in-place behavior revision. R5/R6/R7 revisions are audited through `engine_revisions`.
 
-### 7. Platform safety versus model configuration
+### 7. Platform hard-safety variables
 
-Shared safety ceilings remain global. Strategy choices live under `MODEL1_V1_*` or `MODEL2_V1_*`. Future model versions should define their own prefixed configuration in their own version directory.
+These are shared operational ceilings, not model preferences:
 
-Use `.env.example` as the canonical variable list.
+```env
+MIN_CONFIDENCE_THRESHOLD=0.72
+MIN_SELL_CONFIDENCE=0.60
+MIN_TRADE_USDT=5
+MIN_USDT_RESERVE_PCT=0.20
+MAX_ASSET_ALLOCATION_PCT=0.50
+MAX_DAILY_VOLATILITY_PCT=10
+MAX_SPREAD_PCT=0.25
+ESTIMATED_SLIPPAGE_PCT=0.03
+MAX_MARKET_SLIPPAGE_PCT=0.20
+MAX_PORTFOLIO_DRAWDOWN_PCT=3
+MAX_COMPLETED_ORDERS_24H=8
+MAX_BUYS_PER_CYCLE=2
+MACRO_CACHE_HOURS=6
+```
 
+### 8. Model1 V1 parameters
 
-The active 42-day experiment keeps the same engine IDs and paper portfolios across approved in-place policy/config revisions. `engine_revisions` stores each revision once and `engine_runs.revision_id` identifies which revision produced each cycle. Revision changes do not reset the experiment clock.
+```env
+MODEL1_V1_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.15
+MODEL1_V1_BUY_PCT_OF_USDT=0.20
+MODEL1_V1_SELL_PCT_OF_HOLDING=0.25
+MODEL1_V1_TARGET_DAILY_VOLATILITY_PCT=3
+MODEL1_V1_MIN_BEAR_REBOUND_SCORE=0.62
+MODEL1_V1_ALLOCATION_DEADBAND_PCT=3
+MODEL1_V1_MIN_DIRECTIONAL_EDGE=0.15
+MODEL1_V1_MIN_SETUP_SCORE=2.00
+MODEL1_V1_MIN_EXPECTED_NET_EDGE_PCT=0.05
+MODEL1_V1_MIN_LIQUIDITY_PROBABILITY=0.55
+MODEL1_V1_DISORDERLY_PROBABILITY=0.70
+MODEL1_V1_CUT_POSITION_PROBABILITY=0.72
+MODEL1_V1_WAIT_CLOSE_TTL_MINUTES=30
+MODEL1_V1_WAIT_RETEST_TTL_MINUTES=120
+```
 
-The fixed `MIN_TRADABLE_RANGE_TO_COST_RATIO` variable is retired. Round-trip execution costs are evaluated inside structural model economics while the shared platform retains operational hard-safety ceilings.
+### 9. Model2 parameters
 
-### 8. Cron
+The active engine is `model2-v2`. V2 parameters:
 
-Configure cron-job.org:
+```env
+MODEL2_V2_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.15
+MODEL2_V2_STRONG_INITIAL_ENTRY_PCT_OF_PORTFOLIO=0.20
+MODEL2_V2_BUY_PCT_OF_USDT=0.20
+MODEL2_V2_SELL_PCT_OF_HOLDING=0.25
+MODEL2_V2_TARGET_DAILY_VOLATILITY_PCT=3
+MODEL2_V2_MIN_BEAR_REBOUND_SCORE=0.62
+MODEL2_V2_ALLOCATION_DEADBAND_PCT=3
+MODEL2_V2_MIN_DIRECTIONAL_EDGE=0.15
+MODEL2_V2_MIN_SETUP_SCORE=2.00
+MODEL2_V2_MIN_EXPECTED_NET_EDGE_PCT=0.05
+MODEL2_V2_MIN_LIQUIDITY_PROBABILITY=0.55
+MODEL2_V2_DISORDERLY_PROBABILITY=0.70
+MODEL2_V2_CUT_POSITION_PROBABILITY=0.72
+MODEL2_V2_WAIT_CLOSE_TTL_MINUTES=30
+MODEL2_V2_WAIT_RETEST_TTL_MINUTES=120
+```
+
+The repository may retain `model2-v1` code and `MODEL2_V1_*` examples as a historical/alternative model version. The active pair is controlled by `AB_ENGINE_IDS`.
+
+### 10. R6 candidate plan and R7 shadow probability
+
+R6/R7 require no new environment variable.
+
+The application builds candidate-plan geometry from the current market state and transaction costs. R7 shadow probabilities are attached after the final model decision as telemetry only:
+
+```text
+executionAuthoritative=false
+status=uncalibrated_shadow
+horizonMinutes=240
+```
+
+Do not wire these fields into trade execution until enough matured samples have been collected and calibration has been reviewed.
+
+R7 calibration report:
+
+```bash
+npm run strategy:probability-report
+```
+
+The command requires `DATABASE_URL`. It scores only decisions with `shadowForecast` and sufficiently matured future observations. Because it uses 15-minute snapshots, exact intrabar first-touch ordering is not observable.
+
+### 11. Retention and cron
+
+```env
+BOT_RUN_RETENTION_DAYS=45
+DAILY_HISTORY_RETENTION_DAYS=1825
+ORDER_HISTORY_RETENTION_DAYS=730
+MACRO_HISTORY_RETENTION_DAYS=730
+EXPERIMENT_DETAIL_RETENTION_DAYS=180
+CRON_SECRET=at_least_32_random_characters
+```
+
+cron-job.org example:
 
 1. URL: `https://YOUR_PROJECT.vercel.app/api/cron`
 2. Method: `GET`
-3. Schedule: minutes `00, 15, 30, 45`
-4. Time zone: `UTC`
-5. Header: `Authorization: Bearer YOUR_CRON_SECRET`
+3. Schedule: UTC every hour at `00, 15, 30, 45`
+4. Header: `Authorization: Bearer YOUR_CRON_SECRET`
 
-### 9. Validation
+Do not expose `CRON_SECRET` in chat, logs, or the repository.
+
+### 12. Quality validation
 
 ```bash
 npm run lint
 npm run typecheck
 npm run test
 npm run build
-npm run strategy:report
 ```
 
-Historical local backtest/simulation commands are intentionally not part of this clean baseline.
+Diagnostic reports:
 
-### 10. Post-deploy Vercel checklist
+```bash
+npm run strategy:report
+npm run strategy:probability-report
+```
 
-1. Verify Vercel Production `DATABASE_URL` uses the Supabase Transaction pooler URI on port `6543`.
-2. Synchronize Production Environment Variables with the current `.env.example`.
-3. Remove old `model1-blind-*`, `model2-blind-*`, old strategy variables and every `BACKTEST_*` variable.
-4. Set `AB_ENGINE_IDS=model1-v1,model2-v2`.
-5. Set `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2`.
-6. Keep `TRADING_ENABLED=false` and `EXCHANGE_EXECUTION_ENGINE=none` initially.
-7. Verify `/api/health`.
-8. Send one authenticated `/api/cron` request. Runtime does not bootstrap the schema; confirm the Production build applied it successfully.
-9. Verify `/api/state` represents the configured Bybit account/platform surface while `/models` and `/api/models/state` represent A/B `engine_runs` and paper decision history. `activeEngines`, `availableEngines`, and the persisted experiment engines should contain only `model1-v1` and `model2-v2`.
-10. Confirm the experiment and engine tables exist in PostgreSQL.
-11. Run cron-job.org Test Run and confirm HTTP 200.
-12. Observe multiple paper cycles before making any execution-mode change.
+`strategy:report` and `strategy:probability-report` are observational diagnostics, not standalone proof of profitability or causal backtests.
+
+### 13. Post-deploy production checks
+
+1. Verify that Production `DATABASE_URL` uses the Supabase Transaction pooler on port `6543`.
+2. Compare Production Environment Variables with `.env.example`.
+3. Preserve `AB_ENGINE_IDS=model1-v1,model2-v2` and `AB_EXPERIMENT_ID=model1-v1-vs-model2-v2`.
+4. Keep `TRADING_ENABLED=false`, `ALLOW_LIVE_TRADING=false`, and `EXCHANGE_EXECUTION_ENGINE=none`.
+5. After deployment, verify `/api/health` reports successful database connectivity.
+6. Trigger an authenticated `/api/cron` cycle or wait for the normal schedule.
+7. Verify `/api/models/state` shows the same experiment continuing with the current `policyRevision` and code SHA.
+8. Check `/models` for candidate-plan, diagnostics, and `uncalibrated_shadow` forecast telemetry when available.
+9. Do not reset the experiment window or paper portfolios for a behavior revision.
+
+### 14. Current data coverage
+
+The runtime market state includes price action, multi-timeframe support/resistance, orderbook, trade flow, open interest, funding, and derived squeeze-risk evidence.
+
+A realized liquidation-event stream / liquidation heatmap is not yet part of runtime state. Existing squeeze proxies must not be interpreted as real liquidation-cluster data.

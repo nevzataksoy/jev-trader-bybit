@@ -17,7 +17,8 @@
     "test": "vitest run",
     "db:setup": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/setup-db.mjs",
     "strategy:report": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/strategy-report.mjs",
-    "quality": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "quality": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "strategy:probability-report": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/probability-report.mjs"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "^0.6.0",

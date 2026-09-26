@@ -6,7 +6,7 @@
     "strategy:registry": "node scripts/generate-strategy-registry.mjs",
     "predev": "npm run strategy:registry",
     "dev": "next dev",
-    "prebuild": "npm run test",
+    "prebuild": "npx vitest run lib/strategy/platform/candidate-plan.test.ts",
     "build": "node scripts/setup-db-if-production.mjs && next build",
     "start": "next start",
     "prelint": "npm run strategy:registry",

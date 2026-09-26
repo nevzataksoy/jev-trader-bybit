@@ -66,11 +66,11 @@ function logLoss(forecast, outcome) {
 function targetBucket(probability) {
   const bounded = Math.max(0, Math.min(0.999999, probability));
   const lower = Math.floor(bounded * 5) / 5;
-  return \`\${lower.toFixed(1)}-\${(lower + 0.2).toFixed(1)}\`;
+  return `${lower.toFixed(1)}-${(lower + 0.2).toFixed(1)}`;
 }
 
 try {
-  const rows = await sql\`
+  const rows = await sql`
     SELECT
       er.engine_id,
       er.cycle_key,
@@ -101,7 +101,7 @@ try {
       AND d.value ? 'shadowForecast'
       AND d.value->'shadowForecast'->>'status' = 'uncalibrated_shadow'
     ORDER BY sms.captured_at ASC, er.engine_id ASC
-  \`;
+  `;
 
   const samples = [];
   let immature = 0;
@@ -147,7 +147,7 @@ try {
 
   const groups = new Map();
   for (const sample of samples) {
-    const key = \`\${sample.engineId}:\${sample.asset}\`;
+    const key = `${sample.engineId}:${sample.asset}`;
     const group = groups.get(key) ?? {
       engine: sample.engineId,
       asset: sample.asset,
@@ -188,7 +188,7 @@ try {
   const buckets = new Map();
   for (const sample of samples) {
     const bucket = targetBucket(sample.targetProbability);
-    const key = \`\${sample.engineId}:\${bucket}\`;
+    const key = `${sample.engineId}:${bucket}`;
     const item = buckets.get(key) ?? {
       engine: sample.engineId,
       bucket,
@@ -232,7 +232,7 @@ try {
     execution_ready: item.samples >= 500 ? "review_calibration" : "no",
   })));
 
-  console.log(\`Immature/unscorable shadow forecasts: \${immature}\`);
+  console.log(`Immature/unscorable shadow forecasts: ${immature}`);
   if ([...perEngine.values()].some((item) => item.samples < 500)) {
     console.warn("INSUFFICIENT CALIBRATION SAMPLE: shadow probabilities must remain non-authoritative.");
   }

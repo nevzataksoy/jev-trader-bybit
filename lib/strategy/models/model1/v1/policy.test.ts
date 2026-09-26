@@ -141,7 +141,7 @@ describe("Model1 V1 r4 semantics", () => {
       allocation_pct: 20,
       average_entry_price: 95,
       unrealized_pnl_pct: 5,
-      cost_basis_quality: "exact",
+      cost_basis_quality: "complete",
     } as PositionContext;
     const portfolio = buildPortfolioJudgments(judgments, config);
 

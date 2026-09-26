@@ -48,8 +48,6 @@ export interface RotationAssetJudgment {
 }
 
 function selectedSetup(judgment: RotationAssetJudgment, market: MarketIndicatorState): TradingSetup {
-  if (judgment.action.choice === "reduce" || judgment.action.choice === "exit") return "reduce";
-  if (judgment.action.choice === "hold") return "none";
   if (judgment.regime.choice === "range") return "range_reversion";
   if (judgment.regime.choice === "bear") return "bear_rebound";
   if (market.channel_24h_position >= 0.9) return "upside_breakout";
@@ -101,17 +99,14 @@ function toJevAssetJudgments(
       },
     },
     setup_quality: judgment.planQuality,
-    false_breakout: setup === "upside_breakout" ? judgment.invalidationRisk : 0.5,
-    reversal_confirmation: setup === "bear_rebound" || setup === "range_reversion"
-      ? 1 - judgment.invalidationRisk
-      : 0.5,
+    false_breakout: 0.5,
+    reversal_confirmation: 0.5,
     liquidity_ok: judgment.liquidityOk,
-    disorderly: judgment.invalidationRisk,
+    disorderly: 0,
     cut_position: Math.max(
       judgment.action.probabilities.exit ?? 0,
       judgment.action.probabilities.reduce ?? 0,
       judgment.thesisHealth.probabilities.invalid,
-      judgment.invalidationRisk,
     ),
   };
 }

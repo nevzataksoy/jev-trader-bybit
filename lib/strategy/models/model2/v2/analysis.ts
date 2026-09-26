@@ -114,10 +114,11 @@ function deterministicRotationAction(
   const watchableSuitability = evidence.suitability.choice === "strong"
     || evidence.suitability.choice === "moderate"
     || evidence.suitability.choice === "watch";
+  const counterTrendContext = evidence.regime.choice === "range" || evidence.regime.choice === "bear";
   if (
     waitingForConfirmation
     && watchableSuitability
-    && evidence.direction.choice !== "down"
+    && (evidence.direction.choice !== "down" || counterTrendContext)
     && evidence.invalidationRisk < 0.65
     && evidence.liquidityOk >= 0.5
   ) {

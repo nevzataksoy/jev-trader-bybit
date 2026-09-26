@@ -31,14 +31,13 @@ export interface PendingSignal {
   retestSeenAt: string | null;
 }
 
-const fatalBlockers = new Set<DecisionBlocker>([
+const hardFatalBlockers = new Set<DecisionBlocker>([
   "JEV_NO_ENTRY",
   "STRUCTURE_REJECTED",
-  "DIRECTIONAL_EDGE_LOW",
   "SETUP_QUALITY_LOW",
-  "NET_EDGE_LOW",
   "LIQUIDITY_LOW",
   "DISORDERLY_MARKET",
+  "THESIS_INVALIDATED",
   "RISK_BUDGET_ZERO",
   "TARGET_ROOM_LOW",
   "NO_ALLOCATION_INTENT",
@@ -79,7 +78,11 @@ function triggerPrice(setup: TradingSetup, market: MarketIndicatorState) {
 }
 
 function hasFatalBlocker(decision: JevDecision) {
-  return (decision.blockedBy ?? []).some((blocker) => fatalBlockers.has(blocker));
+  const counterTrendSetup = decision.selectedSetup === "range_reversion" || decision.selectedSetup === "bear_rebound";
+  return (decision.blockedBy ?? []).some((blocker) => (
+    hardFatalBlockers.has(blocker)
+    || (blocker === "DIRECTIONAL_EDGE_LOW" && !counterTrendSetup)
+  ));
 }
 
 function hasPendingBlocker(decision: JevDecision) {
@@ -301,7 +304,7 @@ export async function applyConfirmation(input: {
       } else {
         const pendingBlocker: DecisionBlocker = signal.readiness === "wait_close" ? "PENDING_CLOSE" : "PENDING_RETEST";
         const pendingBlockers: DecisionBlocker[] = [
-          ...(decision.blockedBy ?? []).filter((item) => !fatalBlockers.has(item) && item !== "PENDING_CLOSE" && item !== "PENDING_RETEST"),
+          ...(decision.blockedBy ?? []).filter((item) => !hasFatalBlocker({ ...decision, blockedBy: [item] }) && item !== "PENDING_CLOSE" && item !== "PENDING_RETEST"),
           pendingBlocker,
         ];
         decision = {

@@ -24,6 +24,7 @@ export type DecisionBlocker =
   | "NET_EDGE_LOW"
   | "LIQUIDITY_LOW"
   | "DISORDERLY_MARKET"
+  | "THESIS_INVALIDATED"
   | "RISK_BUDGET_ZERO"
   | "CONFIDENCE_BELOW_EXECUTION"
   | "USDT_RESERVE"
@@ -285,6 +286,7 @@ export interface JevDecision {
   grossRiskBudgetPct: number;
   policyReason: string;
   blockedBy?: DecisionBlocker[];
+  diagnostics?: DecisionBlocker[];
   readinessScore?: number;
   signalState?: DecisionSignalState;
   grossExpectedEdgePct?: number;

@@ -123,10 +123,11 @@ describe("Model2 V2 watch economics", () => {
 
     expect(decision.action).toBe("hold");
     expect(decision.expectedNetEdgePct).toBeLessThan(config.minExpectedNetEdgePct);
-    expect(decision.blockedBy).toContain("NET_EDGE_LOW");
+    expect(decision.diagnostics).toContain("NET_EDGE_LOW");
     expect(decision.blockedBy).toContain("PENDING_RETEST");
+    expect(decision.blockedBy).not.toContain("NET_EDGE_LOW");
     expect(decision.signalState).toBe("pending");
-    expect(decision.targetAllocationPct).toBe(0);
+    expect(decision.targetAllocationPct).toBeGreaterThan(0);
     expect(decision.targetDistancePct).toBeCloseTo(1.5);
     expect(decision.roundTripCostPct).toBeGreaterThan(0);
   });
@@ -195,6 +196,99 @@ describe("Model2 V2 watch economics", () => {
     expect(decision.rewardDistancePct).toBeCloseTo(2.2);
     expect(decision.rewardSource).toBe("atr_projection");
     expect(decision.rewardRiskRatio).toBeCloseTo(2.2 / 1.5);
+  });
+
+  it("allows a structurally executable ready entry even when heuristic net edge is diagnostic-only", () => {
+    const readyJudgment = {
+      ...jev(),
+      entry_readiness: {
+        choice: "enter_now",
+        confidence: 0.8,
+        probabilities: { enter_now: 0.8, wait_close: 0.05, wait_retest: 0.05, no_entry: 0.1 },
+      },
+    } satisfies JevAssetJudgments;
+    const enterRotation = {
+      ...rotation(),
+      action: {
+        choice: "enter",
+        confidence: 0.8,
+        probabilities: { enter: 0.8, increase: 0.04, watch: 0.04, hold: 0.04, reduce: 0.04, exit: 0.04 },
+      },
+      suitability: { choice: "strong", confidence: 0.8, probabilities: { strong: 0.8, moderate: 0.1, watch: 0.05, reject: 0.05 } },
+    } satisfies RotationAssetJudgment;
+    const judgments = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, readyJudgment])) as Record<TradeAsset, JevAssetJudgments>;
+    const rotations = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, enterRotation])) as Record<TradeAsset, RotationAssetJudgment>;
+    const indicators = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, market])) as Record<TradeAsset, MarketIndicatorState>;
+    const positions = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, { ...flatPosition, asset }])) as Record<TradeAsset, PositionContext>;
+    const fees = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, 0.4])) as Record<TradeAsset, number>;
+
+    const [decision] = buildDecisions(judgments, rotations, portfolio, indicators, positions, fees, config);
+
+    expect(decision.expectedNetEdgePct).toBeLessThan(config.minExpectedNetEdgePct);
+    expect(decision.diagnostics).toContain("NET_EDGE_LOW");
+    expect(decision.blockedBy).not.toContain("NET_EDGE_LOW");
+    expect(decision.action).toBe("buy");
+  });
+
+  it("does not turn flat thesis invalidation into a reduce short-circuit", () => {
+    const invalidJudgment = {
+      ...jev(),
+      cut_position: 0.9,
+    } satisfies JevAssetJudgments;
+    const invalidRotation = {
+      ...rotation(),
+      action: {
+        choice: "hold",
+        confidence: 0.8,
+        probabilities: { enter: 0.04, increase: 0.04, watch: 0.04, hold: 0.8, reduce: 0.04, exit: 0.04 },
+      },
+      thesisHealth: { choice: "invalid", confidence: 0.8, probabilities: { healthy: 0.05, weakening: 0.05, invalid: 0.8, uncertain: 0.1 } },
+    } satisfies RotationAssetJudgment;
+    const judgments = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, invalidJudgment])) as Record<TradeAsset, JevAssetJudgments>;
+    const rotations = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, invalidRotation])) as Record<TradeAsset, RotationAssetJudgment>;
+    const indicators = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, market])) as Record<TradeAsset, MarketIndicatorState>;
+    const positions = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, { ...flatPosition, asset }])) as Record<TradeAsset, PositionContext>;
+    const fees = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, 0.01])) as Record<TradeAsset, number>;
+
+    const [decision] = buildDecisions(judgments, rotations, portfolio, indicators, positions, fees, config);
+
+    expect(decision.action).toBe("hold");
+    expect(decision.successProbability).toBeGreaterThan(0);
+    expect(decision.blockedBy).toContain("THESIS_INVALIDATED");
+    expect(decision.blockedBy).not.toEqual(["NO_ALLOCATION_INTENT"]);
+  });
+
+  it("still reduces an actually held position when rotation exits", () => {
+    const exitRotation = {
+      ...rotation(),
+      action: {
+        choice: "exit",
+        confidence: 0.9,
+        probabilities: { enter: 0.02, increase: 0.02, watch: 0.02, hold: 0.02, reduce: 0.02, exit: 0.9 },
+      },
+      thesisHealth: { choice: "invalid", confidence: 0.9, probabilities: { healthy: 0.02, weakening: 0.03, invalid: 0.9, uncertain: 0.05 } },
+    } satisfies RotationAssetJudgment;
+    const held = {
+      ...flatPosition,
+      status: "held",
+      quantity: 1,
+      value_usdt: 100,
+      allocation_pct: 20,
+      average_entry_price: 95,
+      unrealized_pnl_pct: 5,
+      cost_basis_quality: "complete",
+    } as PositionContext;
+    const judgments = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, jev()])) as Record<TradeAsset, JevAssetJudgments>;
+    const rotations = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, asset === "BTC" ? exitRotation : rotation()])) as Record<TradeAsset, RotationAssetJudgment>;
+    const indicators = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, market])) as Record<TradeAsset, MarketIndicatorState>;
+    const positions = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, asset === "BTC" ? { ...held, asset } : { ...flatPosition, asset }])) as Record<TradeAsset, PositionContext>;
+    const fees = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, 0.01])) as Record<TradeAsset, number>;
+
+    const [decision] = buildDecisions(judgments, rotations, portfolio, indicators, positions, fees, config);
+
+    expect(decision.action).toBe("sell");
+    expect(decision.successProbability).toBe(0);
+    expect(decision.targetAllocationPct).toBeLessThan(decision.currentAllocationPct);
   });
 
 });

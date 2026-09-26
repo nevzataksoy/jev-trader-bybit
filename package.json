@@ -6,7 +6,7 @@
     "strategy:registry": "node scripts/generate-strategy-registry.mjs",
     "predev": "npm run strategy:registry",
     "dev": "next dev",
-    "prebuild": "npm run lint",
+    "prebuild": "npm run typecheck",
     "build": "node scripts/setup-db-if-production.mjs && next build",
     "start": "next start",
     "prelint": "npm run strategy:registry",

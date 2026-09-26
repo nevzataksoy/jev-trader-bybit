@@ -286,6 +286,7 @@ export interface JevDecision {
   grossRiskBudgetPct: number;
   policyReason: string;
   blockedBy?: DecisionBlocker[];
+  diagnostics?: DecisionBlocker[];
   readinessScore?: number;
   signalState?: DecisionSignalState;
   grossExpectedEdgePct?: number;

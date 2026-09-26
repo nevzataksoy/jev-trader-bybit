@@ -34,10 +34,10 @@ export interface PendingSignal {
 const hardFatalBlockers = new Set<DecisionBlocker>([
   "JEV_NO_ENTRY",
   "STRUCTURE_REJECTED",
-  "DIRECTIONAL_EDGE_LOW",
   "SETUP_QUALITY_LOW",
   "LIQUIDITY_LOW",
   "DISORDERLY_MARKET",
+  "THESIS_INVALIDATED",
   "RISK_BUDGET_ZERO",
   "TARGET_ROOM_LOW",
   "NO_ALLOCATION_INTENT",
@@ -78,11 +78,11 @@ function triggerPrice(setup: TradingSetup, market: MarketIndicatorState) {
 }
 
 function hasHardFatalBlocker(decision: JevDecision) {
-  return (decision.blockedBy ?? []).some((blocker) => hardFatalBlockers.has(blocker));
-}
-
-function hasNetEdgeBlocker(decision: JevDecision) {
-  return decision.blockedBy?.includes("NET_EDGE_LOW") ?? false;
+  const counterTrendSetup = decision.selectedSetup === "range_reversion" || decision.selectedSetup === "bear_rebound";
+  return (decision.blockedBy ?? []).some((blocker) => (
+    hardFatalBlockers.has(blocker)
+    || (blocker === "DIRECTIONAL_EDGE_LOW" && !counterTrendSetup)
+  ));
 }
 
 function hasPendingBlocker(decision: JevDecision) {
@@ -259,7 +259,7 @@ export function buildConfirmedDecision(
     rebalanceDeltaPct: delta,
     signalState: "confirmed" as const,
     blockedBy: [],
-    policyReason: `Model2 V2 confirmation: ${signal.readiness} ${signal.setup} signal passed a later closed candle after the current net edge became executable; target ${target.toFixed(2)}% versus current ${current.currentAllocationPct.toFixed(2)}%; execution confidence ${confidence.toFixed(3)} combines source/current Jev evidence and deterministic confirmation.`,
+    policyReason: `Model2 V2 confirmation: ${signal.readiness} ${signal.setup} signal passed a later closed candle with executable after-cost target room; target ${target.toFixed(2)}% versus current ${current.currentAllocationPct.toFixed(2)}%; execution confidence ${confidence.toFixed(3)} combines source/current Jev evidence and deterministic confirmation.`,
   };
 }
 
@@ -293,20 +293,11 @@ export async function applyConfirmation(input: {
       decision = { ...decision, signalState: "invalidated" };
     }
 
-    if (signal && hasNetEdgeBlocker(decision)) {
-      const pendingBlocker: DecisionBlocker = signal.readiness === "wait_close" ? "PENDING_CLOSE" : "PENDING_RETEST";
-      decision = {
-        ...decision,
-        action: "hold",
-        signalState: "pending",
-        blockedBy: [...new Set([...(decision.blockedBy ?? []).filter((item) => item !== "PENDING_CLOSE" && item !== "PENDING_RETEST"), pendingBlocker])],
-        policyReason: `${decision.policyReason} Model2 V2 keeps the watch signal active, but confirmation cannot promote it while NET_EDGE_LOW remains.`,
-      };
-    } else if (signal) {
+    if (signal) {
       const confirmation = evaluatePendingConfirmation(signal, input.indicators[decision.asset]);
       if (confirmation.touched) await markRetestSeen(signal.id, input.capturedAt);
       if (confirmation.confirmed) {
-        await resolveSignal(signal.id, "confirmed", input.cycleKey, "A later closed candle passed deterministic confirmation with executable net edge.");
+        await resolveSignal(signal.id, "confirmed", input.cycleKey, "A later closed candle passed deterministic confirmation with executable after-cost target room.");
         decision = buildConfirmedDecision(
           decision,
           signal.sourceDecision,
@@ -316,7 +307,7 @@ export async function applyConfirmation(input: {
       } else {
         const pendingBlocker: DecisionBlocker = signal.readiness === "wait_close" ? "PENDING_CLOSE" : "PENDING_RETEST";
         const pendingBlockers: DecisionBlocker[] = [
-          ...(decision.blockedBy ?? []).filter((item) => !hardFatalBlockers.has(item) && item !== "PENDING_CLOSE" && item !== "PENDING_RETEST"),
+          ...(decision.blockedBy ?? []).filter((item) => !hasHardFatalBlocker({ ...decision, blockedBy: [item] }) && item !== "PENDING_CLOSE" && item !== "PENDING_RETEST"),
           pendingBlocker,
         ];
         decision = {

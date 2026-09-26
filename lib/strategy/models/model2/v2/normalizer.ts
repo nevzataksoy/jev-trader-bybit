@@ -52,6 +52,9 @@ function selectedSetup(judgment: RotationAssetJudgment, market: MarketIndicatorS
   if (judgment.regime.choice === "bear") return "bear_rebound";
   if (market.channel_24h_position >= 0.9) return "upside_breakout";
   if (judgment.regime.choice === "bull" || judgment.regime.choice === "accumulation") return "trend_pullback";
+  if (market.regime === "range" || market.regime === "compression") return "range_reversion";
+  if (market.regime === "bear_trend") return "bear_rebound";
+  if (market.regime === "bull_trend") return "trend_pullback";
   return "none";
 }
 

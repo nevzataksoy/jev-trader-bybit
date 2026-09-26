@@ -95,7 +95,7 @@ AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
 ```
 
-42 günlük experiment aktifken `AB_EXPERIMENT_ID`, experiment başlangıç tarihi veya paper portföyler davranış revizyonu için sıfırlanmaz. R5/R6/R7 gibi revizyonlar `engine_revisions` üzerinden audit edilir.
+42 günlük experiment aktifken `AB_EXPERIMENT_ID`, experiment başlangıç tarihi veya paper portföyler davranış revizyonu için sıfırlanmaz. R5/R6/R7/R8 gibi revizyonlar `engine_revisions` üzerinden audit edilir.
 
 ### 7. Platform hard-safety değişkenleri
 
@@ -160,11 +160,11 @@ MODEL2_V2_WAIT_RETEST_TTL_MINUTES=120
 
 Repo `model2-v1` kodunu ve `MODEL2_V1_*` örneklerini tarihsel/alternatif model sürümü olarak tutabilir; aktif A/B pair `AB_ENGINE_IDS` ile belirlenir.
 
-### 10. R6 candidate plan ve R7 shadow probability
+### 10. R6 candidate plan ve R8 shadow probability
 
-R6/R7 için yeni environment variable gerekmez.
+R6/R7/R8 için yeni environment variable gerekmez.
 
-Candidate plan uygulama tarafından mevcut market state ve transaction-cost verisinden oluşturulur. R7 shadow olasılıkları final model kararından sonra yalnız telemetry olarak eklenir:
+Candidate plan uygulama tarafından mevcut market state ve transaction-cost verisinden oluşturulur. R8 shadow olasılıkları final model kararından sonra yalnız telemetry olarak eklenir. R8, sabit 1000-trade örneğinin değişken zaman penceresini reliability ile ağırlıklandırır ve shadow hesabında doygun raw wall-strength değerlerini kullanmaz:
 
 ```text
 executionAuthoritative=false
@@ -172,9 +172,9 @@ status=uncalibrated_shadow
 horizonMinutes=240
 ```
 
-Bu alanlar trade execution'a bağlanmamalıdır. Yeterli olgun örnek ve calibration analizi oluşmadan shadow forecast'e execution yetkisi verilmemelidir.
+Bu alanlar trade execution'a bağlanmamalıdır. Yeterli olgun örnek ve calibration analizi oluşmadan shadow forecast'e execution yetkisi verilmemelidir. `featureQuality.tradeFlowReliability` yalnız shadow modelin veri kalitesi audit alanıdır; execution filtresi değildir.
 
-R7 calibration raporu:
+R8 calibration raporu:
 
 ```bash
 npm run strategy:probability-report
@@ -335,7 +335,7 @@ AB_MIN_DAYS=42
 AB_MIN_FILLED_ORDERS_PER_ENGINE=30
 ```
 
-Do not reset `AB_EXPERIMENT_ID`, the experiment start time, or paper portfolios for an in-place behavior revision. R5/R6/R7 revisions are audited through `engine_revisions`.
+Do not reset `AB_EXPERIMENT_ID`, the experiment start time, or paper portfolios for an in-place behavior revision. R5/R6/R7/R8 revisions are audited through `engine_revisions`.
 
 ### 7. Platform hard-safety variables
 
@@ -400,11 +400,11 @@ MODEL2_V2_WAIT_RETEST_TTL_MINUTES=120
 
 The repository may retain `model2-v1` code and `MODEL2_V1_*` examples as a historical/alternative model version. The active pair is controlled by `AB_ENGINE_IDS`.
 
-### 10. R6 candidate plan and R7 shadow probability
+### 10. R6 candidate plan and R8 shadow probability
 
-R6/R7 require no new environment variable.
+R6/R7/R8 require no new environment variable.
 
-The application builds candidate-plan geometry from the current market state and transaction costs. R7 shadow probabilities are attached after the final model decision as telemetry only:
+The application builds candidate-plan geometry from the current market state and transaction costs. R8 shadow probabilities are attached after the final model decision as telemetry only. R8 reliability-weights fixed-count trade flow by its actual time window and ignores saturated raw wall-strength values in the shadow calculation:
 
 ```text
 executionAuthoritative=false
@@ -412,9 +412,9 @@ status=uncalibrated_shadow
 horizonMinutes=240
 ```
 
-Do not wire these fields into trade execution until enough matured samples have been collected and calibration has been reviewed.
+Do not wire these fields into trade execution until enough matured samples have been collected and calibration has been reviewed. `featureQuality.tradeFlowReliability` is shadow-model audit telemetry only; it is not an execution filter.
 
-R7 calibration report:
+R8 calibration report:
 
 ```bash
 npm run strategy:probability-report

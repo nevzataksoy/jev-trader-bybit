@@ -3,6 +3,7 @@ import type { JevDecision, MarketIndicatorState } from "../../types";
 import {
   attachShadowProbabilityForecasts,
   buildShadowProbabilityForecast,
+  tradeFlowReliability,
 } from "./probabilistic-shadow";
 
 function decision(overrides: Partial<JevDecision> = {}): JevDecision {
@@ -54,6 +55,8 @@ function decision(overrides: Partial<JevDecision> = {}): JevDecision {
 function market(overrides: Partial<MarketIndicatorState> = {}) {
   return {
     trade_flow_imbalance: 0.2,
+    trade_flow_window_seconds: 120,
+    orderbook_imbalance: 0.1,
     bid_wall_strength: 0.8,
     ask_wall_strength: 0.3,
     short_squeeze_risk: 0.2,
@@ -83,6 +86,9 @@ describe("probabilistic shadow forecast", () => {
     expect(forecast!.target1BreakConditional).toBeLessThan(1);
     expect(forecast!.executionAuthoritative).toBe(false);
     expect(forecast!.status).toBe("uncalibrated_shadow");
+    expect(forecast!.methodRevision).toBe("shadow-probability-r2");
+    expect(forecast!.featureQuality?.tradeFlowReliability).toBeCloseTo(1);
+    expect(forecast!.featureQuality?.rawWallStrengthIgnored).toBe(true);
   });
 
   it("raises target-first probability when directional and execution evidence improves", () => {
@@ -104,6 +110,40 @@ describe("probabilistic shadow forecast", () => {
 
     expect(positive.target1BeforeInvalidation).toBeGreaterThan(negative.target1BeforeInvalidation);
     expect(positive.invalidationBeforeTarget1).toBeLessThan(negative.invalidationBeforeTarget1);
+  });
+
+  it("downweights fixed-count trade flow when its temporal window is far from the reference horizon", () => {
+    expect(tradeFlowReliability(120)).toBeCloseTo(1);
+    expect(tradeFlowReliability(23.2)).toBeLessThan(0.25);
+    expect(tradeFlowReliability(545.5)).toBeLessThan(0.25);
+
+    const representative = buildShadowProbabilityForecast(
+      decision(),
+      market({ trade_flow_imbalance: 0.95, trade_flow_window_seconds: 120 }),
+    )!;
+    const burst = buildShadowProbabilityForecast(
+      decision(),
+      market({ trade_flow_imbalance: 0.95, trade_flow_window_seconds: 23.2 }),
+    )!;
+
+    expect(representative.featureQuality!.effectiveTradeFlow)
+      .toBeGreaterThan(burst.featureQuality!.effectiveTradeFlow);
+  });
+
+  it("ignores saturated raw wall-strength values in the shadow forecast", () => {
+    const bidHeavyWalls = buildShadowProbabilityForecast(
+      decision(),
+      market({ bid_wall_strength: 1, ask_wall_strength: 0 }),
+    )!;
+    const askHeavyWalls = buildShadowProbabilityForecast(
+      decision(),
+      market({ bid_wall_strength: 0, ask_wall_strength: 1 }),
+    )!;
+
+    expect(bidHeavyWalls.target1BeforeInvalidation)
+      .toBeCloseTo(askHeavyWalls.target1BeforeInvalidation, 10);
+    expect(bidHeavyWalls.target1BreakConditional)
+      .toBeCloseTo(askHeavyWalls.target1BreakConditional, 10);
   });
 
   it("does not alter the action or allocation fields when forecasts are attached", () => {

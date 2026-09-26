@@ -294,13 +294,20 @@ export interface CandidateTradePlan {
 
 export interface ShadowProbabilityForecast {
   status: "uncalibrated_shadow";
-  methodRevision: "shadow-probability-r1";
+  methodRevision: "shadow-probability-r1" | "shadow-probability-r2";
   horizonMinutes: 240;
   target1BeforeInvalidation: number;
   invalidationBeforeTarget1: number;
   timeout: number;
   target1BreakConditional: number;
   expectedNetReturnPct: number;
+  featureQuality?: {
+    tradeFlowWindowSeconds: number | null;
+    tradeFlowReliability: number;
+    effectiveTradeFlow: number;
+    orderbookImbalance: number;
+    rawWallStrengthIgnored: boolean;
+  };
   executionAuthoritative: false;
 }
 

@@ -12,7 +12,7 @@ Temel hedef, yalnız kısa vadeli yön tahmini yapmak değil; destek, direnç, p
 
 ### Güncel karar mimarisi
 
-R7 itibarıyla akış aşağıdaki gibidir:
+R8 itibarıyla akış aşağıdaki gibidir:
 
 ```text
 15m cron
@@ -40,7 +40,7 @@ model-specific policy + confirmation
   ↓
 final paper decision
   ↓
-R7 shadow probability forecast
+R8 shadow probability forecast
   ├── P(target1 before invalidation)
   ├── P(invalidation before target1)
   ├── P(timeout)
@@ -51,7 +51,7 @@ platform hard safety
 paper execution / persistence
 ```
 
-R7 shadow tahmini final karardan sonra eklenir. `executionAuthoritative=false` olduğu için buy / hold / sell kararını, allocation değerini veya exchange routing davranışını değiştirmez.
+R8 shadow tahmini final karardan sonra eklenir. `executionAuthoritative=false` olduğu için buy / hold / sell kararını, allocation değerini veya exchange routing davranışını değiştirmez.
 
 ### Deterministik ve olasılıksal katmanların sınırı
 
@@ -59,19 +59,19 @@ Proje tamamen deterministik ya da tamamen stokastik değildir. Hedef mimari hibr
 
 - Piyasa geometrisi deterministiktir: support, resistance, invalidation, maliyet, target room ve operasyonel safety kuralları gözlenen veriden hesaplanır.
 - Jev kanıtı olasılıksal dağılımlar içerir fakat bu dağılımlar tek başına kalibre edilmiş piyasa olasılığı kabul edilmez.
-- R7 `shadowForecast`, 4 saatlik plan sonucu için üç yollu bir olasılık dağılımı kaydeder: target1-first, invalidation-first ve timeout.
+- R8 `shadowForecast`, 4 saatlik plan sonucu için üç yollu bir olasılık dağılımı kaydeder: target1-first, invalidation-first ve timeout.
 - `target1BreakConditional`, ilk dirence ulaşıldığında kırılımın devam etmesine ilişkin ayrı bir koşullu shadow olasılığıdır.
 - Shadow olasılıkları henüz kalibre edilmemiştir. Execution yetkisi verilmeden önce gerçek sonuçlarla Brier score, log loss ve calibration bucket analizinden geçmeleri gerekir.
 
-Bu nedenle R7 bir stochastic execution motoru değil, gelecek kalibrasyon için veri toplayan non-authoritative probabilistic shadow katmanıdır.
+Bu nedenle R8 bir stochastic execution motoru değil, gelecek kalibrasyon için veri toplayan non-authoritative probabilistic shadow katmanıdır.
 
-### R5 → R6 → R7 gelişim çizgisi
+### R5 → R6 → R7 → R8 gelişim çizgisi
 
 `structure-economics-r5` market structure temelini düzeltti. Support bölgesinin tamamen fiyatın üzerinde, resistance bölgesinin tamamen fiyatın altında kalmasına izin verilmez.
 
 `structure-economics-r6` Jev'den önce ortak bir `candidatePlan` üretir. Her iki aktif motor aynı support → invalidation → target1 geometrisini görür. İlk resistance için yeterli maliyet sonrası alan yoksa kör ATR reward genişletmesi yapılmaz.
 
-`structure-economics-r7` mevcut R6 execution davranışını değiştirmeden her final karara mümkün olduğunda `shadowForecast` ekler. Bu kayıtlar daha sonra gerçek 4 saatlik sonuçlarla kalibre edilir.
+`structure-economics-r7` mevcut R6 execution davranışını değiştirmeden her final karara mümkün olduğunda `shadowForecast` ekledi. `structure-economics-r8` shadow feature kalitesini iyileştirir: sabit 1000-trade örneğinin değişken zaman penceresini reliability ile ağırlıklandırır, doygun raw wall-strength değerlerini shadow hesabından çıkarır ve bunun yerine orderbook imbalance kullanır. Execution davranışı değişmez.
 
 ### Candidate plan
 
@@ -89,13 +89,13 @@ Bu nedenle R7 bir stochastic execution motoru değil, gelecek kalibrasyon için 
 
 Model1 ve Model2 farklı evidence/policy davranışına sahip olabilir; candidate plan geometrisi ise aynı snapshot için ortaktır.
 
-### R7 shadow probability
+### R8 shadow probability
 
-`shadowForecast` alanı yalnız candidate plan kullanılabilir olduğunda üretilir:
+`shadowForecast` alanı yalnız candidate plan kullanılabilir olduğunda üretilir. R8 ayrıca `featureQuality` altında `tradeFlowWindowSeconds`, `tradeFlowReliability`, `effectiveTradeFlow`, `orderbookImbalance` ve `rawWallStrengthIgnored` alanlarını audit amacıyla saklar:
 
 ```text
 status: uncalibrated_shadow
-methodRevision: shadow-probability-r1
+methodRevision: shadow-probability-r2
 horizonMinutes: 240
 target1BeforeInvalidation
 invalidationBeforeTarget1
@@ -105,7 +105,7 @@ expectedNetReturnPct
 executionAuthoritative: false
 ```
 
-İlk yöntem revision'ı kontrollü şekilde heuristik evidence bileşimi kullanır. Bu değerler calibrated probability olarak yorumlanmamalıdır. Amaç, aynı 42 günlük deney içinde forecast → gerçekleşen sonuç eşleşmesi biriktirerek daha sonra ampirik kalibrasyon yapmaktır.
+R8 yöntemi hâlâ kontrollü ve kalibre edilmemiş heuristik evidence bileşimi kullanır. Trade-flow girdisi, sabit 1000 işlem örneğinin gerçek zaman kapsamasına göre `tradeFlowReliability = exp(-abs(log(windowSeconds / 120)))` ile yumuşak biçimde ağırlıklandırılır; `effectiveTradeFlow = rawFlow × reliability` olur. Raw bid/ask wall strength geçmiş snapshotlarda tamamen doygun kaldığı için shadow olasılığında kullanılmaz; orderbook imbalance kullanılır. Bu değerler calibrated probability olarak yorumlanmamalıdır.
 
 Kalibrasyon raporu:
 
@@ -141,7 +141,7 @@ candidate_2
 candidate_3
 ```
 
-Blind payload içinde gerçek sembol, mutlak fiyat, quantity, average entry price veya takvim kimliği sızarsa kontrol katmanı hata verir. R6/R7 candidate plan ve shadow çalışmaları bu gizlilik invariantını değiştirmez.
+Blind payload içinde gerçek sembol, mutlak fiyat, quantity, average entry price veya takvim kimliği sızarsa kontrol katmanı hata verir. R6/R7/R8 candidate plan ve shadow çalışmaları bu gizlilik invariantını değiştirmez.
 
 ### Model izolasyonu
 
@@ -186,7 +186,7 @@ AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
 ### Dashboard ve endpointler
 
 - `/` ve `/api/state`: Bybit hesabı, canlı platform durumu ve genel runtime yüzeyi.
-- `/models` ve `/api/models/state`: A/B engine run'ları, paper portföyler, kararlar, candidate plan, diagnostics ve R7 shadow probability telemetry.
+- `/models` ve `/api/models/state`: A/B engine run'ları, paper portföyler, kararlar, candidate plan, diagnostics ve R8 shadow probability telemetry.
 - `/api/health`: runtime readiness ve DB bağlantı kontrolü.
 - `/api/cron`: yetkili 15 dakikalık cycle entrypoint'i.
 
@@ -200,7 +200,7 @@ Vercel + Supabase runtime için `DATABASE_URL` değerinde Supabase Transaction p
 
 Uygulama Supabase Data API/Auth/Storage kullanmaz; `SUPABASE_URL`, anon key veya service-role key gerekmez.
 
-R7 için yeni DB tablosu veya migration yoktur. Shadow forecast, mevcut `engine_runs.decisions` JSON içindeki karar telemetry'si olarak saklanır. Böylece aktif experiment sıfırlanmaz.
+R8 için yeni DB tablosu veya migration yoktur. Shadow forecast, mevcut `engine_runs.decisions` JSON içindeki karar telemetry'si olarak saklanır. Böylece aktif experiment sıfırlanmaz.
 
 ### Kalite ve tanı komutları
 
@@ -214,7 +214,7 @@ npm run strategy:report
 npm run strategy:probability-report
 ```
 
-`strategy:probability-report` için olgunlaşmış R7 kayıtları ve çalışan `DATABASE_URL` gerekir.
+`strategy:probability-report` için olgunlaşmış R8 kayıtları ve çalışan `DATABASE_URL` gerekir.
 
 Kurulum ve production adımları için `INSTALL.md` dosyasına bakın.
 
@@ -232,7 +232,7 @@ The strategic goal is broader than short-horizon direction prediction: combine s
 
 ### Current decision architecture
 
-As of R7 the flow is:
+As of R8 the flow is:
 
 ```text
 15m cron
@@ -260,7 +260,7 @@ model-specific policy + confirmation
   ↓
 final paper decision
   ↓
-R7 shadow probability forecast
+R8 shadow probability forecast
   ├── P(target1 before invalidation)
   ├── P(invalidation before target1)
   ├── P(timeout)
@@ -271,7 +271,7 @@ platform hard safety
 paper execution / persistence
 ```
 
-The R7 shadow forecast is attached after the final model decision. Because `executionAuthoritative=false`, it cannot change buy / hold / sell, allocation, or exchange routing.
+The R8 shadow forecast is attached after the final model decision. Because `executionAuthoritative=false`, it cannot change buy / hold / sell, allocation, or exchange routing.
 
 ### Deterministic versus probabilistic boundary
 
@@ -279,19 +279,19 @@ The project is neither purely deterministic nor fully stochastic. The intended a
 
 - Market geometry stays deterministic: support, resistance, invalidation, transaction cost, target room, and operational safety are computed from observed data.
 - Jev evidence contains probability distributions, but those distributions are not automatically treated as calibrated market probabilities.
-- R7 `shadowForecast` records a three-way four-hour outcome distribution: target1-first, invalidation-first, and timeout.
+- R8 `shadowForecast` records a three-way four-hour outcome distribution: target1-first, invalidation-first, and timeout.
 - `target1BreakConditional` is a separate conditional shadow probability for continuation through the first resistance after it is reached.
 - Shadow probabilities are explicitly uncalibrated. They must be evaluated against realized outcomes with Brier score, log loss, and calibration buckets before they can be considered for execution authority.
 
-R7 is therefore not a stochastic execution engine. It is a non-authoritative probabilistic shadow layer used to collect calibration evidence.
+R8 is therefore not a stochastic execution engine. It is a non-authoritative probabilistic shadow layer used to collect calibration evidence.
 
-### R5 → R6 → R7 evolution
+### R5 → R6 → R7 → R8 evolution
 
 `structure-economics-r5` corrected the market-structure foundation. A support zone may not sit entirely above current price, and a resistance zone may not sit entirely below it.
 
 `structure-economics-r6` introduced a shared deterministic `candidatePlan` before Jev evaluation. Both active engines now see the same support → invalidation → target1 geometry. When the first resistance does not provide enough after-cost room, the policy does not invent a blind ATR reward extension.
 
-`structure-economics-r7` preserves R6 execution behavior and adds `shadowForecast` telemetry to final decisions whenever a usable candidate plan exists.
+`structure-economics-r7` added non-authoritative `shadowForecast` telemetry. `structure-economics-r8` improves shadow feature quality: it reliability-weights fixed-count trade flow by its actual time window, ignores saturated raw wall-strength values in the shadow calculation, and uses orderbook imbalance instead. Execution behavior remains unchanged.
 
 ### Candidate plan
 
@@ -309,13 +309,13 @@ R7 is therefore not a stochastic execution engine. It is a non-authoritative pro
 
 Model1 and Model2 may interpret evidence differently, but the candidate-plan geometry for the same snapshot is shared.
 
-### R7 shadow probability
+### R8 shadow probability
 
-`shadowForecast` is emitted only when a candidate plan is available:
+`shadowForecast` is emitted only when a candidate plan is available. R8 also stores `tradeFlowWindowSeconds`, `tradeFlowReliability`, `effectiveTradeFlow`, `orderbookImbalance`, and `rawWallStrengthIgnored` under `featureQuality` for auditability:
 
 ```text
 status: uncalibrated_shadow
-methodRevision: shadow-probability-r1
+methodRevision: shadow-probability-r2
 horizonMinutes: 240
 target1BeforeInvalidation
 invalidationBeforeTarget1
@@ -325,7 +325,7 @@ expectedNetReturnPct
 executionAuthoritative: false
 ```
 
-The first method revision intentionally uses a controlled heuristic evidence composition. These numbers must not be described as calibrated probabilities. The purpose is to accumulate forecast → realized-outcome pairs inside the same 42-day experiment and then calibrate empirically.
+R8 remains a controlled, uncalibrated heuristic evidence composition. Fixed-count trade flow is softly reliability-weighted with `tradeFlowReliability = exp(-abs(log(windowSeconds / 120)))`, producing `effectiveTradeFlow = rawFlow × reliability`. Raw bid/ask wall strength is ignored in shadow probability because it was fully saturated across the observed sample; orderbook imbalance is used instead. These numbers must not be described as calibrated probabilities.
 
 Calibration report:
 
@@ -361,7 +361,7 @@ candidate_2
 candidate_3
 ```
 
-The blind payload guard rejects leaked symbols, absolute prices, raw quantities, average-entry prices, or calendar identity. R6/R7 candidate-plan and shadow work does not weaken this invariant.
+The blind payload guard rejects leaked symbols, absolute prices, raw quantities, average-entry prices, or calendar identity. R6/R7/R8 candidate-plan and shadow work does not weaken this invariant.
 
 ### Model isolation
 
@@ -420,7 +420,7 @@ For Vercel + Supabase runtime, `DATABASE_URL` should use the Supabase Transactio
 
 The application does not use Supabase Data API/Auth/Storage, so no `SUPABASE_URL`, anon key, or service-role key is required.
 
-R7 adds no database table or migration. Shadow forecasts are stored as decision telemetry inside the existing `engine_runs.decisions` JSON, so the active experiment does not reset.
+R8 adds no database table or migration. Shadow forecasts are stored as decision telemetry inside the existing `engine_runs.decisions` JSON, so the active experiment does not reset.
 
 ### Quality and diagnostics
 
@@ -434,6 +434,6 @@ npm run strategy:report
 npm run strategy:probability-report
 ```
 
-`strategy:probability-report` requires matured R7 records and a working `DATABASE_URL`.
+`strategy:probability-report` requires matured R8 records and a working `DATABASE_URL`.
 
 See `INSTALL.md` for installation and production deployment steps.

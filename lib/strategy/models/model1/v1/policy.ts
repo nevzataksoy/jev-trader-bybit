@@ -1,6 +1,7 @@
 import type { ModelConfig } from "./config";
 import type {
   AssetId,
+  CandidateTradePlan,
   DecisionBlocker,
   EntryReadiness,
   JevAssetJudgments,
@@ -14,6 +15,7 @@ import type {
   TradingSetup,
 } from "../../../../types";
 import { TRADE_ASSETS } from "../../../../types";
+import { buildCandidateTradePlan } from "../../../platform/candidate-plan";
 
 type TradingConfig = ModelConfig;
 
@@ -37,6 +39,7 @@ interface StatefulOpportunity {
   reduce: boolean;
   blockers: DecisionBlocker[];
   diagnostics: DecisionBlocker[];
+  candidatePlan: CandidateTradePlan;
 }
 
 function clamp(value: number, minimum = 0, maximum = 1) {
@@ -112,26 +115,6 @@ function setupIsViable(
   return false;
 }
 
-function structuralRewardRisk(market: MarketIndicatorState, setup: TradingSetup) {
-  const atr = Math.max(finite(market.atr_14_pct, 0.1), 0.05);
-  const targetDistance = finite(market.distance_to_resistance_pct, 0);
-  const supportLow = finite(market.support_zone_low, 0);
-  const invalidationDistance = supportLow > 0 && market.last_price > 0
-    ? Math.max(atr * 0.55, (market.last_price - supportLow) / market.last_price * 100)
-    : atr * (setup === "upside_breakout" ? 1.15 : 1.05);
-  const projectedReward = atr * 2.2;
-  const useAtrProjection = setup === "upside_breakout" && targetDistance <= 0;
-  const reward = useAtrProjection ? projectedReward : targetDistance;
-  return {
-    reward,
-    rewardSource: useAtrProjection ? "atr_projection" as const : "resistance" as const,
-    risk: invalidationDistance,
-    targetDistance,
-    invalidationDistance,
-    rewardRiskRatio: reward / Math.max(invalidationDistance, 0.0001),
-  };
-}
-
 function microstructureAdjustment(market: MarketIndicatorState) {
   const wallBias = finite(market.bid_wall_strength) - finite(market.ask_wall_strength);
   const flow = clamp(finite(market.trade_flow_imbalance), -1, 1);
@@ -182,7 +165,13 @@ function evaluateOpportunity(
     || directionEdge <= -config.minDirectionalEdge
   );
 
-  const { reward, rewardSource, risk, targetDistance, invalidationDistance, rewardRiskRatio } = structuralRewardRisk(market, setup);
+  const candidatePlan = buildCandidateTradePlan(market, roundTripCostPct);
+  const reward = candidatePlan.target1DistancePct;
+  const rewardSource = "resistance" as const;
+  const risk = candidatePlan.invalidationDistancePct;
+  const targetDistance = candidatePlan.target1DistancePct;
+  const invalidationDistance = candidatePlan.invalidationDistancePct;
+  const rewardRiskRatio = candidatePlan.target1RewardRiskRatio;
   if (reduce) {
     return {
       setup,
@@ -204,6 +193,7 @@ function evaluateOpportunity(
       reduce: true,
       blockers: [],
       diagnostics: [],
+      candidatePlan,
     };
   }
 
@@ -225,8 +215,9 @@ function evaluateOpportunity(
   );
   const grossExpectedEdgePct = successProbability * reward - (1 - successProbability) * risk;
   const expectedNetEdgePct = grossExpectedEdgePct - roundTripCostPct;
-  const structuralNetRoomPct = reward - roundTripCostPct;
-  const viableStructure = setupIsViable(setup, market, judgments, config);
+  const structuralNetRoomPct = candidatePlan.target1AfterCostRoomPct;
+  const viableStructure = candidatePlan.status === "available"
+    && setupIsViable(setup, market, judgments, config);
   const blockers: DecisionBlocker[] = [];
   if (readiness === "no_entry") blockers.push("JEV_NO_ENTRY");
   if (setup === "none" || !viableStructure) blockers.push("STRUCTURE_REJECTED");
@@ -275,6 +266,7 @@ function evaluateOpportunity(
     reduce: false,
     blockers: decisionBlockers,
     diagnostics,
+    candidatePlan,
   };
 }
 
@@ -433,6 +425,7 @@ export function buildDecisions(
       signalState: state,
       blockedBy: uniqueBlockers,
       diagnostics: opportunity.diagnostics,
+      candidatePlan: opportunity.candidatePlan,
       grossExpectedEdgePct: opportunity.grossExpectedEdgePct,
       successProbability: opportunity.successProbability,
       roundTripCostPct: opportunity.roundTripCostPct,

@@ -276,7 +276,7 @@ describe("Model2 V2 watch economics", () => {
       allocation_pct: 20,
       average_entry_price: 95,
       unrealized_pnl_pct: 5,
-      cost_basis_quality: "exact",
+      cost_basis_quality: "complete",
     } as PositionContext;
     const judgments = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, jev()])) as Record<TradeAsset, JevAssetJudgments>;
     const rotations = Object.fromEntries(TRADE_ASSETS.map((asset) => [asset, asset === "BTC" ? exitRotation : rotation()])) as Record<TradeAsset, RotationAssetJudgment>;

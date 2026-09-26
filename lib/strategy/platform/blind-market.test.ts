@@ -13,6 +13,9 @@ function market(symbol: string, price: number, return24h: number): MarketIndicat
     ema_9: price * 0.995, ema_21: price * 0.99, ema_50: price * 0.98, ema_200: price * 0.9, ema_50_slope_3h_pct: 0.1, rsi_14: 54, atr_14: price * 0.02, atr_14_pct: 2, bb_upper: price * 1.05, bb_lower: price * 0.95, bb_width_pct: 10, bb_position: 0.3, macd_hist: price * 0.001,
     realized_volatility_24h_pct: 2, downside_volatility_24h_pct: 1, volume_ratio_20: 1.1, volume_zscore_20: 0.2, price_zscore_20: -0.8, distance_vwap_24h_pct: -0.2, trend_efficiency_4h: 0.4, up_fraction_4h: 0.5, return_streak_15m: 1, drawdown_20d_pct: -2,
     channel_24h_high: price * 1.05, channel_24h_low: price * 0.95, channel_24h_position: 0.2, channel_3d_high: price * 1.1, channel_3d_low: price * 0.9, channel_3d_position: 0.3, channel_7d_high: price * 1.15, channel_7d_low: price * 0.85, channel_7d_position: 0.4,
+    support_zone_low: price * 0.98, support_zone_high: price * 0.995, support_strength: 0.8,
+    resistance_zone_low: price * 1.03, resistance_zone_high: price * 1.04, resistance_strength: 0.9,
+    distance_to_support_pct: 0.5, distance_to_resistance_pct: 3,
     distance_to_24h_high_atr: 2, distance_to_24h_low_atr: 1, breakout_24h_pct: 0, bb_width_percentile_7d: 0.4, candle_body_atr: 0.2, upper_wick_atr: 0.2, lower_wick_atr: 0.7,
     structure_12h: "mixed", adx_14: 22, plus_di_14: 24, minus_di_14: 18, trend_score: 0.2, regime: "range", countertrend_rebound_score: 0.7,
     bid_ask_spread_pct: 0.03, orderbook_imbalance: 0.1, bid_depth_50_usdt: 100_000, ask_depth_50_usdt: 90_000, depth_ratio: 1.1, taker_buy_ratio: 0.55, trade_flow_imbalance: 0.08, trade_flow_window_seconds: 120,
@@ -76,5 +79,8 @@ describe("blind Jev state", () => {
     expect(blind.state.candidates[btcSlot].returns_pct.d1).toBe(1.2);
     expect(blind.state.candidates[btcSlot].trend.price_vs_ema_200_pct).toBeCloseTo(11.111111, 5);
     expect(blind.state.candidates[btcSlot].inventory.exposure_pct).toBe(30);
+    expect(blind.state.candidates[btcSlot].candidate_plan.status).toBe("available");
+    expect(blind.state.candidates[btcSlot].candidate_plan.target1DistancePct).toBeCloseTo(3, 5);
+    expect(blind.state.candidates[btcSlot].candidate_plan.target1AfterCostRoomPct).toBeGreaterThan(0);
   });
 });

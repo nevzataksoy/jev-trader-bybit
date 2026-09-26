@@ -13,8 +13,8 @@ function regimeQuestion(slot: BlindSlot) {
 
 function suitabilityQuestion(slot: BlindSlot) {
   return choice(
-    { objective: `Classify long-entry suitability for state.candidates.${slot}; this is evidence, not an order.`, constraints: ["Strong requires evidence-backed support or accepted resistance breakout, timing, participation and positive cost-adjusted opportunity.", "Prefer meaningful room from support toward resistance over raw short-horizon volatility.", "Use persistent orderbook walls, trade flow and positioning as confirmation rather than standalone signals.", "Near an upper range boundary requires an accepted breakout.", "Do not become optimistic because application code owns risk."] },
-    { strong: "Coherent and executable now.", moderate: "Promising but not exceptional.", watch: "Developing and needs confirmation.", reject: "No justified risk-increasing entry." },
+    { objective: `Classify the long-entry suitability of state.candidates.${slot}.candidate_plan; this is evidence, not an order.`, constraints: ["candidate_plan is deterministic support-to-resistance geometry supplied before this judgment.", "Strong requires coherent structure, timing, participation and positive cost-adjusted target room.", "A structurally coherent plan may still be watch when economics or timing are not ready.", "Use persistent orderbook walls, trade flow, open interest and squeeze risk as confirmation rather than standalone signals.", "Near or inside resistance requires accepted breakout evidence before risk increases.", "Do not become optimistic because application code owns risk."] },
+    { strong: "Candidate plan is coherent and executable now.", moderate: "Candidate plan is coherent but not exceptional.", watch: "Candidate plan exists but needs confirmation or better economics.", reject: "No justified risk-increasing use of the candidate plan." },
   );
 }
 
@@ -27,8 +27,8 @@ function thesisHealthQuestion(slot: BlindSlot) {
 
 function timingQuestion(slot: BlindSlot) {
   return choice(
-    { objective: `Judge timing for state.candidates.${slot} at this closed-candle boundary.`, constraints: ["A moving price alone is not confirmation.", "Use support retests, resistance acceptance, closed candles, flow and participation together."] },
-    { enter_now: "Confirmed now.", wait_close: "Needs another close.", wait_retest: "Needs boundary retest.", no_entry: "No risk-increasing entry." },
+    { objective: `Judge timing for state.candidates.${slot}.candidate_plan at this closed-candle boundary.`, constraints: ["If candidate_plan.status is unavailable choose no_entry.", "A moving price alone is not confirmation.", "wait_retest means a retest of candidate-plan support.", "wait_close means another close or resistance-acceptance confirmation is required.", "Use flow, participation and positioning as confirmation rather than standalone triggers."] },
+    { enter_now: "Candidate plan is confirmed now.", wait_close: "Candidate plan needs another close.", wait_retest: "Candidate plan needs a support retest.", no_entry: "Candidate plan should not increase risk." },
   );
 }
 
@@ -41,8 +41,8 @@ function directionQuestion(slot: BlindSlot) {
 
 function planQualityQuestion(slot: BlindSlot) {
   return score(
-    { objective: `Score evidence quality for a possible long plan in state.candidates.${slot}.`, constraints: ["Do not choose position size or authorize a trade."] },
-    ["No defensible setup.", "Weak setup.", "Developing setup.", "Coherent setup.", "Exceptional multi-factor setup."],
+    { objective: `Score the evidence quality of state.candidates.${slot}.candidate_plan.`, constraints: ["Judge the supplied plan rather than inventing a different entry, stop or target.", "Use structural location, support/resistance strength, price action, execution evidence and leveraged positioning.", "Do not choose position size or authorize a trade."] },
+    ["No defensible plan.", "Weak plan.", "Developing plan.", "Coherent plan.", "Exceptional multi-factor plan."],
   );
 }
 

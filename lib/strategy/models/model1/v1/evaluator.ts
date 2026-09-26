@@ -93,6 +93,7 @@ function semanticCandidate(candidate: BlindCandidateNumericState) {
       provenance: candidate.execution.microstructure_provenance,
     },
     leveraged_positioning: candidate.leveraged_positioning,
+    candidate_plan: candidate.candidate_plan,
   };
 }
 
@@ -114,11 +115,11 @@ function regimeQuestion(slot: BlindSlot) {
 }
 
 function setupQuestion(slot: BlindSlot) {
-  return choice({ objective: `Select the best long-only setup supported by state.candidates.${slot}.`, constraints: ["Select none without positive executable evidence.", "Prefer entries near evidence-backed support with meaningful room to resistance.", "A range entry belongs near a lower boundary.", "A breakout needs participation and acceptance through resistance.", "Use order flow and persistent liquidity walls as confirmation, not as standalone truth.", "Do not output an order."] }, { trend_pullback: "Orderly pullback in an intact rise.", upside_breakout: "Accepted upper-boundary break.", range_reversion: "Supported lower-boundary mean reversion.", bear_rebound: "Confirmed tactical rebound in a decline.", reduce: "Existing long thesis is deteriorating.", none: "No executable setup." });
+  return choice({ objective: `Select the structural long-only setup that best describes state.candidates.${slot} and its candidate_plan.`, constraints: ["candidate_plan is deterministic geometry supplied before this judgment.", "Select none only when no coherent structural setup exists; timing and economics are evaluated separately.", "Prefer support-based plans near evidence-backed support.", "Compression or transition may still support a range-reversion plan when the candidate plan is anchored to support.", "A breakout needs participation and acceptance through resistance.", "Use order flow, open interest, squeeze risk and persistent liquidity walls as confirmation rather than standalone truth.", "Do not output an order."] }, { trend_pullback: "Orderly pullback in an intact rise.", upside_breakout: "Accepted upper-boundary break.", range_reversion: "Supported lower-boundary mean reversion or compression rebound.", bear_rebound: "Confirmed tactical rebound in a decline.", reduce: "Existing long thesis is deteriorating.", none: "No coherent structural setup." });
 }
 
 function readinessQuestion(slot: BlindSlot) {
-  return choice({ objective: `Judge entry readiness for state.candidates.${slot}.`, constraints: ["Closed evidence must confirm enter_now.", "Use support/retest location and resistance acceptance when judging timing.", "Do not infer identity."] }, { enter_now: "Confirmed now.", wait_close: "Needs another close.", wait_retest: "Needs a retest.", no_entry: "No acceptable entry." });
+  return choice({ objective: `Judge timing for the deterministic candidate_plan in state.candidates.${slot}.`, constraints: ["If candidate_plan.status is unavailable choose no_entry.", "Closed evidence must confirm enter_now.", "wait_retest means a retest of the candidate plan support area.", "wait_close means another close or resistance-acceptance confirmation is required.", "Do not infer identity."] }, { enter_now: "Candidate plan is confirmed now.", wait_close: "Candidate plan needs another close.", wait_retest: "Candidate plan needs a support retest.", no_entry: "Candidate plan is not currently acceptable." });
 }
 
 function directionQuestion(slot: BlindSlot) {

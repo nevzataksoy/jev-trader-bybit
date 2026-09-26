@@ -1,6 +1,7 @@
 import { getTradingConfig } from "../../config";
 import type { JevTradingState } from "../../jev";
-import type { MarketIndicatorState, PositionContext, TradeAsset } from "../../types";
+import type { CandidateTradePlan, MarketIndicatorState, PositionContext, TradeAsset } from "../../types";
+import { buildCandidateTradePlan } from "./candidate-plan";
 import { TRADE_ASSETS } from "../../types";
 
 export const BLIND_SLOTS = ["candidate_1", "candidate_2", "candidate_3"] as const;
@@ -108,10 +109,11 @@ export interface BlindCandidateNumericState {
     long_squeeze_risk: number;
     short_squeeze_risk: number;
   };
+  candidate_plan: CandidateTradePlan;
 }
 
 export interface BlindNumericState {
-  schema_version: "blind-market-v2";
+  schema_version: "blind-market-v3";
   evaluator_role: string;
   time_context: {
     cadence_minutes: 15;
@@ -204,6 +206,7 @@ export function buildBlindNumericState(state: JevTradingState) {
     const derivativesAvailable = market.funding_rate_latest_pct !== null
       || market.open_interest_change_1h_pct !== null
       || market.open_interest_change_4h_pct !== null;
+    const candidatePlan = buildCandidateTradePlan(market, roundTripCost);
     return [slot, {
       inventory: {
         state: position.status,
@@ -278,11 +281,23 @@ export function buildBlindNumericState(state: JevTradingState) {
         long_squeeze_risk: round(market.long_squeeze_risk ?? 0),
         short_squeeze_risk: round(market.short_squeeze_risk ?? 0),
       },
+      candidate_plan: {
+        ...candidatePlan,
+        supportDistancePct: round(candidatePlan.supportDistancePct),
+        supportStrength: round(candidatePlan.supportStrength),
+        resistanceDistancePct: round(candidatePlan.resistanceDistancePct),
+        resistanceStrength: round(candidatePlan.resistanceStrength),
+        invalidationDistancePct: round(candidatePlan.invalidationDistancePct),
+        target1DistancePct: round(candidatePlan.target1DistancePct),
+        target1AfterCostRoomPct: round(candidatePlan.target1AfterCostRoomPct),
+        target1RewardRiskRatio: round(candidatePlan.target1RewardRiskRatio),
+        roundTripCostPct: round(candidatePlan.roundTripCostPct),
+      },
     } satisfies BlindCandidateNumericState];
   })) as Record<BlindSlot, BlindCandidateNumericState>;
   const firstMarket = state.indicators[aliases.slotToAsset.candidate_1];
   const blindState: BlindNumericState = {
-    schema_version: "blind-market-v2",
+    schema_version: "blind-market-v3",
     evaluator_role: "Evaluate anonymous market evidence only. Instrument identity and calendar identity are intentionally unavailable. Do not infer them. Do not size, route or authorize trades. Report uncertainty honestly; deterministic application policy owns final allocation, risk and execution.",
     time_context: {
       cadence_minutes: 15,

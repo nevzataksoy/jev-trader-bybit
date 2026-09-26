@@ -12,6 +12,7 @@ import {
   calculateReturnStreak,
   calculateTrendEfficiency,
   buildTechnicalState,
+  buildStructureZones,
   classifyMamisPhase,
   classifyRegime,
   parseClosedCandles,
@@ -99,6 +100,50 @@ describe("market indicators", () => {
     expect(state.bb_width_percentile_7d).toBeGreaterThanOrEqual(0);
     expect(state.bb_width_percentile_7d).toBeLessThanOrEqual(1);
     expect(["higher", "lower", "mixed"]).toContain(state.structure_12h);
+  });
+
+  it("never classifies a zone entirely above price as support", () => {
+    const candle = (index: number, low: number, high: number): Candle => ({
+      startTime: index * 15 * 60_000,
+      closeTime: (index + 1) * 15 * 60_000,
+      open: (low + high) / 2,
+      high,
+      low,
+      close: (low + high) / 2,
+      volume: 10,
+      turnover: ((low + high) / 2) * 10,
+    });
+    const intraday = [101, 101, 100.5, 101, 101, 101, 101]
+      .map((low, index) => candle(index, low, 102));
+    const hourly = Array.from({ length: 10 }, (_, index) => candle(index, 99, 103));
+    const fourHourly = Array.from({ length: 10 }, (_, index) => candle(index, 98, 104));
+
+    const zones = buildStructureZones(intraday, hourly, fourHourly, 100, 1);
+
+    expect(zones.support_zone_low).toBeLessThanOrEqual(100);
+    expect(zones.distance_to_support_pct).toBeGreaterThanOrEqual(0);
+  });
+
+  it("never classifies a zone entirely below price as resistance", () => {
+    const candle = (index: number, low: number, high: number): Candle => ({
+      startTime: index * 15 * 60_000,
+      closeTime: (index + 1) * 15 * 60_000,
+      open: (low + high) / 2,
+      high,
+      low,
+      close: (low + high) / 2,
+      volume: 10,
+      turnover: ((low + high) / 2) * 10,
+    });
+    const intraday = [99, 99, 99.5, 99, 99, 99, 99]
+      .map((high, index) => candle(index, 98, high));
+    const hourly = Array.from({ length: 10 }, (_, index) => candle(index, 97, 101.5));
+    const fourHourly = Array.from({ length: 10 }, (_, index) => candle(index, 96, 102));
+
+    const zones = buildStructureZones(intraday, hourly, fourHourly, 100, 1);
+
+    expect(zones.resistance_zone_high).toBeGreaterThanOrEqual(100);
+    expect(zones.distance_to_resistance_pct).toBeGreaterThanOrEqual(0);
   });
 
   it("computes finite 24-hour realized volatility from 15-minute returns", () => {

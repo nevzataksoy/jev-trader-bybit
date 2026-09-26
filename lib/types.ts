@@ -292,6 +292,18 @@ export interface CandidateTradePlan {
   roundTripCostPct: number;
 }
 
+export interface ShadowProbabilityForecast {
+  status: "uncalibrated_shadow";
+  methodRevision: "shadow-probability-r1";
+  horizonMinutes: 240;
+  target1BeforeInvalidation: number;
+  invalidationBeforeTarget1: number;
+  timeout: number;
+  target1BreakConditional: number;
+  expectedNetReturnPct: number;
+  executionAuthoritative: false;
+}
+
 export interface JevDecision {
   asset: TradeAsset;
   action: TradeAction;
@@ -309,6 +321,7 @@ export interface JevDecision {
   blockedBy?: DecisionBlocker[];
   diagnostics?: DecisionBlocker[];
   candidatePlan?: CandidateTradePlan;
+  shadowForecast?: ShadowProbabilityForecast;
   readinessScore?: number;
   signalState?: DecisionSignalState;
   grossExpectedEdgePct?: number;

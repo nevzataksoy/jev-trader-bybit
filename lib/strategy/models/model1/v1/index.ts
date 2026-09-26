@@ -1,6 +1,7 @@
 import type { JevAssetJudgments, TradeAsset } from "../../../../types";
 import { TRADE_ASSETS } from "../../../../types";
 import type { StrategyEngine } from "../../../types";
+import { attachShadowProbabilityForecasts } from "../../../platform/probabilistic-shadow";
 import { applyConfirmation } from "./confirmation";
 import { getModelConfig } from "./config";
 import { buildBlindModel1State, evaluateBlindModel1Evidence } from "./evaluator";
@@ -11,7 +12,7 @@ export const model1V1Engine: StrategyEngine = {
   id: "model1-v1",
   family: "model1",
   version: "v1",
-  policyRevision: "structure-economics-r6",
+  policyRevision: "structure-economics-r7",
   configRevision: "2026-09-24-r1",
   orderDecisions,
   planExecution: (decision, context) => planModelExecution(decision, context, getModelConfig()),
@@ -33,7 +34,7 @@ export const model1V1Engine: StrategyEngine = {
       feePctByAsset,
       config,
     );
-    const decisions = await applyConfirmation({
+    const confirmed = await applyConfirmation({
       scopeId: runtime.scopeId,
       experimentId: runtime.experimentId,
       engineId: "model1-v1",
@@ -42,6 +43,7 @@ export const model1V1Engine: StrategyEngine = {
       decisions: preliminary,
       indicators: engineState.indicators,
     });
+    const decisions = attachShadowProbabilityForecasts(confirmed, engineState.indicators);
     return {
       engineId: "model1-v1",
       engineVersion: "v1",

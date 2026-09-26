@@ -4,93 +4,136 @@
 
 ### Proje özeti
 
-JEV TRADER BYBIT, USDT / BTC / ETH / XAUT arasında sermaye rotasyonu yapan, Bybit piyasa verilerini kullanan ve TypeSafe Jev üzerinden anonim kanıt toplayan bir işlem motorudur.
+JEV TRADER BYBIT, USDT / BTC / ETH / XAUT arasında sermaye rotasyonu yapan, Bybit piyasa verilerini kullanan ve TypeSafe Jev üzerinden körleştirilmiş piyasa kanıtı değerlendiren long-only spot işlem araştırma motorudur.
 
-Bu repo temiz başlangıç mimarisine geçirilmiştir. Eski V1/V2/V3/V4 isim zinciri kaldırılmıştır. Mevcut eski V4 davranışı başlangıç noktası kabul edilerek iki model ailesi aşağıdaki kimliklerle yeniden başlatılmıştır:
+Aktif 42 günlük A/B deneyi aynı experiment ve paper portföyler korunarak `model1-v1` ile `model2-v2` arasında çalışır. Onaylı davranış değişiklikleri yeni experiment açmak yerine `policyRevision` ile izlenir. Böylece R3/R4/R5/R6/R7 dönemleri aynı deney zaman çizelgesi içinde karşılaştırılabilir.
 
-- `model1-v1`
-- `model2-v1`
+Temel hedef, yalnız kısa vadeli yön tahmini yapmak değil; destek, direnç, price action, orderbook, trade flow, open interest, funding ve volatilite kanıtlarını birlikte değerlendirerek sermayeyi uygun varlıklar arasında dolaştıran, maliyet sonrası kârlılığı ve risk sınırlarını gözeten bir trader motoru geliştirmektir.
 
-Aktif 42 günlük A/B karşılaştırması `model1-v1` ve `model2-v2` arasında çalışır. Bu pencere içinde onaylı davranış değişiklikleri yeni experiment açmadan `policyRevision` / `configRevision` ile audit edilir; başlangıç/bitiş tarihi ve paper portföy korunur.
+### Güncel karar mimarisi
 
-### Temel mimari kural
-
-Her model sürümü kendi stratejisinin tamamını kendi klasöründe taşır.
+R7 itibarıyla akış aşağıdaki gibidir:
 
 ```text
-lib/strategy/models/
-├── model1/
-│   └── v1/
-│       ├── index.ts
-│       ├── evaluator.ts
-│       ├── policy.ts
-│       ├── confirmation.ts
-│       ├── config.ts
-│       └── confirmation.test.ts
-└── model2/
-    └── v1/
-        ├── index.ts
-        ├── evaluator.ts
-        ├── analysis.ts
-        ├── normalizer.ts
-        ├── policy.ts
-        ├── confirmation.ts
-        ├── config.ts
-        └── confirmation.test.ts
+15m cron
+  ↓
+Bybit piyasa verisini bir kez topla
+  ↓
+shared market snapshot
+  ↓
+deterministik market structure
+  ├── support / resistance zones
+  ├── fee + spread + slippage
+  ├── orderbook / flow
+  └── OI / funding / squeeze proxy
+  ↓
+deterministik candidate plan
+  ├── support location
+  ├── invalidation distance
+  ├── first resistance / target1
+  ├── after-cost room
+  └── reward/risk
+  ↓
+blind Jev evidence
+  ↓
+model-specific policy + confirmation
+  ↓
+final paper decision
+  ↓
+R7 shadow probability forecast
+  ├── P(target1 before invalidation)
+  ├── P(invalidation before target1)
+  ├── P(timeout)
+  └── P(target1 break | target1 reached)
+  ↓
+platform hard safety
+  ↓
+paper execution / persistence
 ```
 
-Model sürümleri birbirini import edemez. Registry generator bu kuralı build öncesinde doğrular.
+R7 shadow tahmini final karardan sonra eklenir. `executionAuthoritative=false` olduğu için buy / hold / sell kararını, allocation değerini veya exchange routing davranışını değiştirmez.
 
-Bu nedenle:
+### Deterministik ve olasılıksal katmanların sınırı
+
+Proje tamamen deterministik ya da tamamen stokastik değildir. Hedef mimari hibrittir:
+
+- Piyasa geometrisi deterministiktir: support, resistance, invalidation, maliyet, target room ve operasyonel safety kuralları gözlenen veriden hesaplanır.
+- Jev kanıtı olasılıksal dağılımlar içerir fakat bu dağılımlar tek başına kalibre edilmiş piyasa olasılığı kabul edilmez.
+- R7 `shadowForecast`, 4 saatlik plan sonucu için üç yollu bir olasılık dağılımı kaydeder: target1-first, invalidation-first ve timeout.
+- `target1BreakConditional`, ilk dirence ulaşıldığında kırılımın devam etmesine ilişkin ayrı bir koşullu shadow olasılığıdır.
+- Shadow olasılıkları henüz kalibre edilmemiştir. Execution yetkisi verilmeden önce gerçek sonuçlarla Brier score, log loss ve calibration bucket analizinden geçmeleri gerekir.
+
+Bu nedenle R7 bir stochastic execution motoru değil, gelecek kalibrasyon için veri toplayan non-authoritative probabilistic shadow katmanıdır.
+
+### R5 → R6 → R7 gelişim çizgisi
+
+`structure-economics-r5` market structure temelini düzeltti. Support bölgesinin tamamen fiyatın üzerinde, resistance bölgesinin tamamen fiyatın altında kalmasına izin verilmez.
+
+`structure-economics-r6` Jev'den önce ortak bir `candidatePlan` üretir. Her iki aktif motor aynı support → invalidation → target1 geometrisini görür. İlk resistance için yeterli maliyet sonrası alan yoksa kör ATR reward genişletmesi yapılmaz.
+
+`structure-economics-r7` mevcut R6 execution davranışını değiştirmeden her final karara mümkün olduğunda `shadowForecast` ekler. Bu kayıtlar daha sonra gerçek 4 saatlik sonuçlarla kalibre edilir.
+
+### Candidate plan
+
+`candidatePlan` model kararı verilmeden önce oluşturulan ortak ve deterministik plan geometrisidir. Başlıca alanlar:
+
+- `status`: `available` / `unavailable`
+- `location`: `inside_support`, `near_support`, `between_levels`, `inside_resistance`, `unstructured`
+- `supportDistancePct` ve `supportStrength`
+- `resistanceDistancePct` ve `resistanceStrength`
+- `invalidationDistancePct`
+- `target1DistancePct`
+- `target1AfterCostRoomPct`
+- `target1RewardRiskRatio`
+- `roundTripCostPct`
+
+Model1 ve Model2 farklı evidence/policy davranışına sahip olabilir; candidate plan geometrisi ise aynı snapshot için ortaktır.
+
+### R7 shadow probability
+
+`shadowForecast` alanı yalnız candidate plan kullanılabilir olduğunda üretilir:
 
 ```text
-models/model1/v1 silinirse  -> yalnız Model1 V1 kalkar
-models/model1 silinirse     -> bütün Model1 ailesi kalkar
-models/model2 etkilenmez
+status: uncalibrated_shadow
+methodRevision: shadow-probability-r1
+horizonMinutes: 240
+target1BeforeInvalidation
+invalidationBeforeTarget1
+timeout
+target1BreakConditional
+expectedNetReturnPct
+executionAuthoritative: false
 ```
 
-Yeni bir Model3 eklemek için örnek:
+İlk yöntem revision'ı kontrollü şekilde heuristik evidence bileşimi kullanır. Bu değerler calibrated probability olarak yorumlanmamalıdır. Amaç, aynı 42 günlük deney içinde forecast → gerçekleşen sonuç eşleşmesi biriktirerek daha sonra ampirik kalibrasyon yapmaktır.
 
-```text
-lib/strategy/models/model3/v1/index.ts
+Kalibrasyon raporu:
+
+```bash
+npm run strategy:probability-report
 ```
 
-oluşturulur. Registry build öncesinde bunu otomatik olarak `model3-v1` kimliğiyle keşfeder.
+Rapor yalnız olgunlaşmış 4 saatlik shadow forecast'leri skorlar. 15 dakikalık snapshot örneklemesi kullandığı için intrabar first-touch sırasını kesin olarak gözlemleyemez; bu sınırlamayı rapor açıkça belirtir.
 
-### Ortak platform ile model stratejisi arasındaki sınır
+### Kullanılan piyasa kanıtı
 
-Ortak katman yalnızca modelden bağımsız altyapıyı sağlar:
+Ortak market state içinde aşağıdaki başlıca kanıtlar bulunur:
 
-- Bybit piyasa verisi ve indikatörler
-- anonim varlık eşleme / blind payload güvenliği
-- ortak snapshot
-- paper portfolio ve execution persistence
-- exchange hard safety limitleri
-- A/B orchestration
-- registry/discovery
-- PostgreSQL erişimi
+- 15m / 1h / 4h / 1d / 7d / 30d getiriler
+- EMA, RSI, MACD, Bollinger, ADX ve trend efficiency
+- çok zaman dilimli support / resistance pivot kümeleri
+- orderbook imbalance, depth, bid/ask wall strength ve persistence
+- taker buy ratio ve trade-flow imbalance
+- open interest değişimi ve funding rate
+- türetilmiş long/short squeeze risk skorları
+- volatility, drawdown ve behavioral phase
+- gerektiğinde makro bağlam
 
-Model sürüm klasörü ise kendi stratejik kararlarının sahibidir:
-
-- Jev soruları
-- Jev cevabının analizi
-- setup / readiness değerlendirmesi
-- opportunity ve portfolio scoring
-- allocation politikası
-- execution sizing ve karar sıralaması
-- model-özel parametreler
-- wait_close / wait_retest mantığı
-- deterministic confirmation
-- evidence-weighted confirmation confidence
-- nihai buy / hold / sell kararı
-
-Runner artık modelden sonra ortak bir stratejik confirmation katmanı çalıştırmaz. Model sürümü kararını nihai hale getirerek runner'a verir.
+Önemli: uygulama şu anda gerçekleşmiş liquidation event stream'i veya ileriye dönük gerçek liquidation heatmap toplamaz. `long_squeeze_risk` / `short_squeeze_risk`, OI + funding + fiyat hareketinden türetilen proxy skorlardır. Gerçek liquidation-cluster entegrasyonu ayrı bir geliştirme olarak yapılmalıdır.
 
 ### Kör Jev ilkesi
 
-Jev'e gerçek varlık kimliği gönderilmez.
-
-Uygulama BTC / ETH / XAUT değerlerini deterministik anonim slotlara dönüştürür:
+Jev'e BTC / ETH / XAUT kimliği gönderilmez. Uygulama gerçek assetleri deterministik olarak anonim slotlara eşler:
 
 ```text
 candidate_1
@@ -98,27 +141,40 @@ candidate_2
 candidate_3
 ```
 
-Payload içinde gerçek sembol, mutlak varlık kimliği ve yasaklı alanlar bulunursa blind payload kontrolü hata verir. Kimlik eşleme uygulama tarafında kalır.
+Blind payload içinde gerçek sembol, mutlak fiyat, quantity, average entry price veya takvim kimliği sızarsa kontrol katmanı hata verir. R6/R7 candidate plan ve shadow çalışmaları bu gizlilik invariantını değiştirmez.
 
-### Cron ve A/B akışı
+### Model izolasyonu
 
-```text
-cron
-  ↓
-piyasa verisini bir kez çek
-  ↓
-shared snapshot
-  ├── model1-v1 → kendi Jev sorgusu → kendi analiz/policy/confirmation → final karar
-  └── model2-v1 → kendi Jev sorgusu → kendi analiz/policy/confirmation → final karar
-  ↓
-platform safety
-  ↓
-paper execution / persistence
-```
+Aktif motorlar:
 
-A/B modunda gerçek Bybit emir iletimi kod seviyesinde kapalıdır.
+- `model1-v1`
+- `model2-v2`
 
-Varsayılan:
+Repo ayrıca Model2'nin önceki `model2-v1` sürümünü de model ailesi altında tutar; aktif A/B pair `AB_ENGINE_IDS` ile belirlenir.
+
+Her model sürümü kendi stratejik davranışının sahibidir:
+
+- Jev soruları
+- evidence yorumlama
+- setup / readiness
+- portfolio scoring
+- allocation policy
+- confirmation
+- execution sizing ve ordering
+
+Model sürümleri birbirinin strateji dosyalarını import etmez. Ortak platform kodu yalnız model-agnostic altyapıyı taşır. Candidate plan ve R7 shadow forecast ortak platform katmanındadır çünkü iki motora aynı market geometry / audit yüzeyini sağlar.
+
+### 42 günlük deney invariantları
+
+Aktif deney sırasında:
+
+- experiment kimliği ve başlangıç/bitiş zamanı korunur;
+- paper portföyler ve geçmiş `engine_runs` korunur;
+- davranış değişiklikleri `engine_revisions` üzerinden audit edilir;
+- yalnız temel engine contract değişirse yeni engine/experiment düşünülür;
+- A/B modunda gerçek exchange routing kapalı kalır.
+
+Varsayılan production orchestration:
 
 ```env
 STRATEGY_RUN_MODE=ab_test
@@ -127,44 +183,26 @@ AB_ENGINE_IDS=model1-v1,model2-v2
 AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
 ```
 
+### Dashboard ve endpointler
 
-### 42 günlük in-place revision ve yapısal trade ekonomisi
+- `/` ve `/api/state`: Bybit hesabı, canlı platform durumu ve genel runtime yüzeyi.
+- `/models` ve `/api/models/state`: A/B engine run'ları, paper portföyler, kararlar, candidate plan, diagnostics ve R7 shadow probability telemetry.
+- `/api/health`: runtime readiness ve DB bağlantı kontrolü.
+- `/api/cron`: yetkili 15 dakikalık cycle entrypoint'i.
 
-Aktif deneyde engine kimlikleri, paper portföyler ve 42 günlük başlangıç/bitiş tarihi korunur. Strateji/config revizyonları `engine_revisions` tablosunda tekil tutulur; her `engine_run` yalnız `revision_id` taşır. Aynı config JSON her 15 dakikada tekrar yazılmaz.
-
-Entry/exit ekonomisi artık global `ATR/cost >= 2.50` hard gate'ine bağlı değildir. Modeller 15m/1h/4h destek-direnc yapısı, hedef alanı, invalidation mesafesi, reward/risk ve tahmini round-trip maliyeti; RSI/MACD/BB/ADX/VWAP, orderbook wall/flow, OI/funding ve makro bağlamla birlikte değerlendirir. `structure-economics-r3` ile non-breakout setup'larda reward doğrudan gerçek resistance mesafesidir; ATR projection yalnız önünde geçerli resistance alanı bulunmayan `upside_breakout` için fallback olarak kullanılır. R:R, gross/net edge ve target-room kontrolü aynı effective reward üzerinden hesaplanır. Platform stale data, spread, drawdown, aşırı volatilite, reserve/allocation ve order limitleri gibi operasyonel hard safety kontrollerini korur.
-
-Market/makro kanıtı cycle başına tek `shared_market_snapshots` satırında tutulur. Skipped/rejected BUY/SELL denemeleri duplicate order üretmeden mevcut `engine_runs.executions` üzerinden `/models` ekranında görünür. Cleanup ayrı cron kullanmaz; normal 15 dakikalık cron sonunda çalışır.
-
-### Dashboard ve runtime endpoint ayrımı
-
-A/B modunda ana dashboard ile A/B Lab farklı veri yüzeylerini gösterir:
-
-- `/` ve `/api/state`: yapılandırılmış Bybit hesabı, canlı fiyatlar, hesap emirleri, platform bağlantıları ve genel cron durumu.
-- `/models` ve `/api/models/state`: `engine_runs`, paper portföyler, paper emirler, equity ve model karar geçmişi.
-- `/api/health`: runtime konfigürasyonunun temel readiness/safety özetini verir.
-
-A/B modunda `bot_runs` içindeki ana dashboard kaydı model kararlarının authoritative geçmişi değildir. Model kararlarını ve A/B performansını incelerken `/api/models/state` kullanılmalıdır. Models API ayrıca runtime registry'deki aktif/kayıtlı motorları ve exchange execution engine seçimini döndürür; böylece DB deney kaydı ile çalışan registry karşılaştırılabilir.
+`/models` üzerinde shadow olasılıkları açıkça `uncalibrated_shadow` olarak gösterilir ve execution sinyali değildir.
 
 ### Veritabanı
 
-Temiz proje tek şema kaynağı olarak `database/schema.sql` kullanır. Geçmiş migration kayıtları ve upgrade SQL'leri kaldırılmıştır.
+Uygulama provider-agnostic PostgreSQL kullanır. Temiz şema kaynağı `database/schema.sql` dosyasıdır.
 
-Runtime veritabanı erişimi provider-agnostic PostgreSQL protokolü kullanır. Vercel + Supabase için `DATABASE_URL` değerinde Supabase **Transaction pooler** (port `6543`) URI'si tercih edilir. Postgres.js istemcisinde prepared statements kapalıdır; bu, Supabase transaction pooling ile uyumludur. Uygulama Supabase Data API/Auth/Storage kullanmadığı için `SUPABASE_URL`, anon key veya service-role key gerekmez.
+Vercel + Supabase runtime için `DATABASE_URL` değerinde Supabase Transaction pooler port `6543` kullanılır. Veri taşıma / `pg_dump` / `psql` gibi yönetim işlemleri için Session pooler port `5432` kullanılabilir.
 
-Vercel Production build aşaması `database/schema.sql` dosyasını `DATABASE_URL` üzerinden uygular. Preview ve yerel build'ler bu otomatik adımı atlar. Runtime endpointleri DDL çalıştırmaz; yalnızca mevcut şemayı kullanır. `/api/health` artık DB bağlantısını gerçek bir `SELECT 1` ile doğrular ve secret göstermeden provider/connection mode bilgisini döndürür.
+Uygulama Supabase Data API/Auth/Storage kullanmaz; `SUPABASE_URL`, anon key veya service-role key gerekmez.
 
-İsterseniz deploy öncesinde açıkça:
+R7 için yeni DB tablosu veya migration yoktur. Shadow forecast, mevcut `engine_runs.decisions` JSON içindeki karar telemetry'si olarak saklanır. Böylece aktif experiment sıfırlanmaz.
 
-```bash
-npm run db:setup
-```
-
-çalıştırabilirsiniz.
-
-Tarihsel local backtest / simulation akışı temiz projeden kaldırılmıştır.
-
-### Kalite komutları
+### Kalite ve tanı komutları
 
 ```bash
 npm ci
@@ -172,9 +210,13 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run strategy:report
+npm run strategy:probability-report
 ```
 
-Kurulum ve Vercel adımları için `INSTALL.md` dosyasına bakın.
+`strategy:probability-report` için olgunlaşmış R7 kayıtları ve çalışan `DATABASE_URL` gerekir.
+
+Kurulum ve production adımları için `INSTALL.md` dosyasına bakın.
 
 ---
 
@@ -182,131 +224,216 @@ Kurulum ve Vercel adımları için `INSTALL.md` dosyasına bakın.
 
 ### Project summary
 
-JEV TRADER BYBIT rotates capital across USDT / BTC / ETH / XAUT using Bybit market data and anonymous TypeSafe Jev evidence.
+JEV TRADER BYBIT is a long-only spot trading research engine that rotates capital across USDT / BTC / ETH / XAUT, consumes Bybit market data, and evaluates blinded market evidence through TypeSafe Jev.
 
-The repository now uses a clean-baseline model architecture. Historical V1/V2/V3/V4 naming was removed. The former V4 behavior is treated as the initial baseline and is now exposed as:
+The active 42-day A/B experiment keeps the same experiment identity and paper portfolios while comparing `model1-v1` with `model2-v2`. Approved behavioral changes are tracked with `policyRevision` instead of restarting the experiment, so R3/R4/R5/R6/R7 remain comparable on the same timeline.
 
-- `model1-v1`
-- `model2-v1`
+The strategic goal is broader than short-horizon direction prediction: combine support, resistance, price action, orderbook, trade flow, open interest, funding, and volatility evidence to rotate capital across eligible assets while respecting after-cost economics and risk limits.
 
-The active 42-day A/B experiment compares `model1-v1` with `model2-v2`. Approved refinements inside this window are audited with `policyRevision` / `configRevision` without resetting the experiment clock or paper portfolios.
+### Current decision architecture
 
-### Core architecture rule
-
-Every model version owns its complete strategy inside its own version directory.
+As of R7 the flow is:
 
 ```text
-lib/strategy/models/
-├── model1/
-│   └── v1/
-│       ├── index.ts
-│       ├── evaluator.ts
-│       ├── policy.ts
-│       ├── confirmation.ts
-│       ├── config.ts
-│       └── confirmation.test.ts
-└── model2/
-    └── v1/
-        ├── index.ts
-        ├── evaluator.ts
-        ├── analysis.ts
-        ├── normalizer.ts
-        ├── policy.ts
-        ├── confirmation.ts
-        ├── config.ts
-        └── confirmation.test.ts
-```
-
-A model version may not import another model family or version. The registry generator enforces this at build time.
-
-Deleting `models/model1/v1` removes only Model1 V1. Deleting `models/model1` removes the full Model1 family without breaking Model2.
-
-To add Model3, create for example:
-
-```text
-lib/strategy/models/model3/v1/index.ts
-```
-
-The generated registry will discover it as `model3-v1`.
-
-### Platform versus strategy
-
-Shared platform code owns only model-agnostic infrastructure:
-
-- Bybit data and indicators
-- blind asset masking
-- shared snapshots
-- paper portfolio and persistence
-- hard execution safety ceilings
-- A/B orchestration
-- model discovery
-- PostgreSQL access
-
-Each version directory owns its strategy:
-
-- Jev questions
-- evidence interpretation
-- setup/readiness logic
-- opportunity and portfolio scoring
-- allocation policy
-- execution sizing and decision ordering
-- model-specific parameters
-- wait_close / wait_retest state
-- deterministic confirmation
-- evidence-weighted confirmation confidence
-- final buy / hold / sell decisions
-
-The runner does not apply a shared strategic confirmation layer after the model finishes.
-
-### Blind Jev invariant
-
-Jev never receives BTC / ETH / XAUT identity. Assets are mapped to anonymous candidates and only normalized evidence is sent. The application keeps the private reverse mapping.
-
-### A/B flow
-
-```text
-cron
+15m cron
   ↓
-fetch market data once
+fetch Bybit market data once
   ↓
-shared snapshot
-  ├── model1-v1 → Jev → local analysis/policy/confirmation → final decision
-  └── model2-v1 → Jev → local analysis/policy/confirmation → final decision
+shared market snapshot
   ↓
-platform safety
+deterministic market structure
+  ├── support / resistance zones
+  ├── fee + spread + slippage
+  ├── orderbook / flow
+  └── OI / funding / squeeze proxy
+  ↓
+deterministic candidate plan
+  ├── support location
+  ├── invalidation distance
+  ├── first resistance / target1
+  ├── after-cost room
+  └── reward/risk
+  ↓
+blind Jev evidence
+  ↓
+model-specific policy + confirmation
+  ↓
+final paper decision
+  ↓
+R7 shadow probability forecast
+  ├── P(target1 before invalidation)
+  ├── P(invalidation before target1)
+  ├── P(timeout)
+  └── P(target1 break | target1 reached)
+  ↓
+platform hard safety
   ↓
 paper execution / persistence
 ```
 
-Real exchange routing is hard-disabled while `STRATEGY_RUN_MODE=ab_test`.
+The R7 shadow forecast is attached after the final model decision. Because `executionAuthoritative=false`, it cannot change buy / hold / sell, allocation, or exchange routing.
 
+### Deterministic versus probabilistic boundary
 
-### 42-day in-place revisions and structural trade economics
+The project is neither purely deterministic nor fully stochastic. The intended architecture is hybrid:
 
-The active experiment keeps engine identities, paper portfolios and its planned 42-day start/end window. Policy/config changes are stored once in `engine_revisions`; each `engine_run` carries only a compact `revision_id`.
+- Market geometry stays deterministic: support, resistance, invalidation, transaction cost, target room, and operational safety are computed from observed data.
+- Jev evidence contains probability distributions, but those distributions are not automatically treated as calibrated market probabilities.
+- R7 `shadowForecast` records a three-way four-hour outcome distribution: target1-first, invalidation-first, and timeout.
+- `target1BreakConditional` is a separate conditional shadow probability for continuation through the first resistance after it is reached.
+- Shadow probabilities are explicitly uncalibrated. They must be evaluated against realized outcomes with Brier score, log loss, and calibration buckets before they can be considered for execution authority.
 
-Entry economics no longer depend on a shared fixed `ATR/cost >= 2.50` hard gate. Model policy evaluates multi-timeframe support/resistance, target room, invalidation distance, reward/risk and estimated round-trip costs, reinforced by RSI/MACD/BB/ADX/VWAP, orderbook flow/walls, OI/funding and macro context. Shared platform risk retains operational hard-safety gates.
+R7 is therefore not a stochastic execution engine. It is a non-authoritative probabilistic shadow layer used to collect calibration evidence.
 
-Shared market/macro evidence stays deduplicated in one cycle snapshot. Skipped execution attempts reuse `engine_runs.executions` and are surfaced in `/models`; cleanup continues at the end of every normal 15-minute cron cycle with no separate cleanup cron.
+### R5 → R6 → R7 evolution
 
-### Dashboard and runtime endpoint split
+`structure-economics-r5` corrected the market-structure foundation. A support zone may not sit entirely above current price, and a resistance zone may not sit entirely below it.
 
-In A/B mode the main dashboard and A/B Lab intentionally expose different data surfaces:
+`structure-economics-r6` introduced a shared deterministic `candidatePlan` before Jev evaluation. Both active engines now see the same support → invalidation → target1 geometry. When the first resistance does not provide enough after-cost room, the policy does not invent a blind ATR reward extension.
 
-- `/` and `/api/state`: configured Bybit account, live prices, account orders, platform connections and the general cron state.
-- `/models` and `/api/models/state`: `engine_runs`, paper portfolios, paper orders, equity and model decision history.
-- `/api/health`: basic runtime configuration readiness and safety summary.
+`structure-economics-r7` preserves R6 execution behavior and adds `shadowForecast` telemetry to final decisions whenever a usable candidate plan exists.
 
-During A/B runs, the main `bot_runs` record is not the authoritative model-decision history. Use `/api/models/state` for model decisions and A/B performance. The models API also exposes the active/registered runtime engines and selected exchange execution engine so the live registry can be compared with the persisted experiment.
+### Candidate plan
+
+`candidatePlan` is shared deterministic trade geometry built before model judgment. Main fields include:
+
+- `status`: `available` / `unavailable`
+- `location`: `inside_support`, `near_support`, `between_levels`, `inside_resistance`, `unstructured`
+- `supportDistancePct` and `supportStrength`
+- `resistanceDistancePct` and `resistanceStrength`
+- `invalidationDistancePct`
+- `target1DistancePct`
+- `target1AfterCostRoomPct`
+- `target1RewardRiskRatio`
+- `roundTripCostPct`
+
+Model1 and Model2 may interpret evidence differently, but the candidate-plan geometry for the same snapshot is shared.
+
+### R7 shadow probability
+
+`shadowForecast` is emitted only when a candidate plan is available:
+
+```text
+status: uncalibrated_shadow
+methodRevision: shadow-probability-r1
+horizonMinutes: 240
+target1BeforeInvalidation
+invalidationBeforeTarget1
+timeout
+target1BreakConditional
+expectedNetReturnPct
+executionAuthoritative: false
+```
+
+The first method revision intentionally uses a controlled heuristic evidence composition. These numbers must not be described as calibrated probabilities. The purpose is to accumulate forecast → realized-outcome pairs inside the same 42-day experiment and then calibrate empirically.
+
+Calibration report:
+
+```bash
+npm run strategy:probability-report
+```
+
+The report scores only matured four-hour forecasts. It uses 15-minute snapshot observations, so it cannot observe exact intrabar first-touch ordering; the report prints this limitation.
+
+### Market evidence
+
+The shared market state includes:
+
+- 15m / 1h / 4h / 1d / 7d / 30d returns
+- EMA, RSI, MACD, Bollinger, ADX, and trend efficiency
+- multi-timeframe support / resistance pivot clusters
+- orderbook imbalance, depth, bid/ask wall strength, and persistence
+- taker buy ratio and trade-flow imbalance
+- open-interest changes and funding rate
+- derived long/short squeeze-risk proxies
+- volatility, drawdown, and behavioral phase
+- macro context when available
+
+Important: the application does not currently collect a realized liquidation-event stream or a forward liquidation heatmap. `long_squeeze_risk` / `short_squeeze_risk` are proxies derived from OI, funding, and price behavior. Real liquidation-cluster integration is a separate future development.
+
+### Blind Jev invariant
+
+Jev never receives BTC / ETH / XAUT identity. The application maps real assets to anonymous candidate slots:
+
+```text
+candidate_1
+candidate_2
+candidate_3
+```
+
+The blind payload guard rejects leaked symbols, absolute prices, raw quantities, average-entry prices, or calendar identity. R6/R7 candidate-plan and shadow work does not weaken this invariant.
+
+### Model isolation
+
+Active engines:
+
+- `model1-v1`
+- `model2-v2`
+
+The repository also retains the earlier `model2-v1` version inside the Model2 family; the active A/B pair is selected through `AB_ENGINE_IDS`.
+
+Each model version owns its strategic behavior:
+
+- Jev questions
+- evidence interpretation
+- setup / readiness
+- portfolio scoring
+- allocation policy
+- confirmation
+- execution sizing and ordering
+
+Model versions do not import another model's strategy files. Shared platform code contains only model-agnostic infrastructure. Candidate-plan geometry and the R7 shadow forecast live in the shared platform because both engines require the same market geometry and audit surface.
+
+### 42-day experiment invariants
+
+During the active experiment:
+
+- the experiment identity and start/end window stay unchanged;
+- paper portfolios and historical `engine_runs` are preserved;
+- behavior changes are audited through `engine_revisions`;
+- a new engine/experiment is considered only for a fundamental engine-contract change;
+- real exchange routing remains disabled in A/B mode.
+
+Default production orchestration:
+
+```env
+STRATEGY_RUN_MODE=ab_test
+EXCHANGE_EXECUTION_ENGINE=none
+AB_ENGINE_IDS=model1-v1,model2-v2
+AB_EXPERIMENT_ID=model1-v1-vs-model2-v2
+```
+
+### Dashboard and endpoints
+
+- `/` and `/api/state`: Bybit account, live platform state, and general runtime surface.
+- `/models` and `/api/models/state`: A/B engine runs, paper portfolios, decisions, candidate plans, diagnostics, and R7 shadow-probability telemetry.
+- `/api/health`: runtime readiness and database connectivity.
+- `/api/cron`: authenticated 15-minute cycle entrypoint.
+
+The `/models` page labels shadow probabilities as `uncalibrated_shadow`; they are not execution signals.
 
 ### Database
 
-`database/schema.sql` is the clean baseline schema. Historical migration bookkeeping and upgrade SQL have been removed.
+The application uses provider-agnostic PostgreSQL. `database/schema.sql` is the clean schema source.
 
-Runtime access uses provider-agnostic PostgreSQL. For Vercel + Supabase, set `DATABASE_URL` to the Supabase **Transaction pooler** URI on port `6543`. Prepared statements are disabled in Postgres.js for transaction-pooler compatibility. The app does not use the Supabase Data API/Auth/Storage, so no `SUPABASE_URL`, anon key, or service-role key is required.
+For Vercel + Supabase runtime, `DATABASE_URL` should use the Supabase Transaction pooler on port `6543`. Session pooler port `5432` may be used for administrative transfer / `pg_dump` / `psql` work.
 
-Vercel Production builds apply `database/schema.sql` through `DATABASE_URL`. Preview and local builds skip this automatic provisioning step. Runtime endpoints do not execute schema DDL; they only use the provisioned schema. `/api/health` performs a live `SELECT 1` readiness check and reports provider/connection mode without exposing credentials. `npm run db:setup` remains available for explicit provisioning.
+The application does not use Supabase Data API/Auth/Storage, so no `SUPABASE_URL`, anon key, or service-role key is required.
 
-The old local historical backtest/simulation subsystem has been removed.
+R7 adds no database table or migration. Shadow forecasts are stored as decision telemetry inside the existing `engine_runs.decisions` JSON, so the active experiment does not reset.
 
-See `INSTALL.md` for deployment instructions.
+### Quality and diagnostics
+
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+npm run strategy:report
+npm run strategy:probability-report
+```
+
+`strategy:probability-report` requires matured R7 records and a working `DATABASE_URL`.
+
+See `INSTALL.md` for installation and production deployment steps.

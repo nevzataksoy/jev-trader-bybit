@@ -160,7 +160,7 @@ describe("Model2 V2 watch economics", () => {
     expect(decision.rewardRiskRatio).toBeCloseTo(0.2 / 1.5);
   });
 
-  it("uses ATR projection only for a breakout with no forward resistance room", () => {
+  it("does not invent ATR reward when the first resistance has no forward room", () => {
     const breakoutJudgment = {
       ...jev(),
       best_setup: {
@@ -193,9 +193,11 @@ describe("Model2 V2 watch economics", () => {
     const [decision] = buildDecisions(judgments, rotations, portfolio, indicators, positions, fees, config);
 
     expect(decision.targetDistancePct).toBe(0);
-    expect(decision.rewardDistancePct).toBeCloseTo(2.2);
-    expect(decision.rewardSource).toBe("atr_projection");
-    expect(decision.rewardRiskRatio).toBeCloseTo(2.2 / 1.5);
+    expect(decision.rewardDistancePct).toBe(0);
+    expect(decision.rewardSource).toBe("resistance");
+    expect(decision.rewardRiskRatio).toBe(0);
+    expect(decision.blockedBy).toContain("TARGET_ROOM_LOW");
+    expect(decision.action).toBe("hold");
   });
 
   it("allows a structurally executable ready entry even when heuristic net edge is diagnostic-only", () => {

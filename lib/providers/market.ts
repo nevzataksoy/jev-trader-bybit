@@ -142,7 +142,7 @@ function clusterLevels(levels: WeightedLevel[], tolerance: number) {
   return clusters;
 }
 
-function buildStructureZones(
+export function buildStructureZones(
   candles: Candle[],
   hourlyCandles: Candle[],
   fourHourlyCandles: Candle[],
@@ -150,6 +150,7 @@ function buildStructureZones(
   atr: number,
 ) {
   const tolerance = Math.max(atr * 0.6, lastPrice * 0.0015);
+  const halfWidth = Math.max(atr * 0.35, lastPrice * 0.00075);
   const supportLevels = [
     ...pivotLevels(candles, "support", 1, 160),
     ...pivotLevels(hourlyCandles, "support", 1.7, 120),
@@ -161,17 +162,24 @@ function buildStructureZones(
     ...pivotLevels(fourHourlyCandles, "resistance", 2.4, 90),
   ];
   const supports = clusterLevels(supportLevels, tolerance)
-    .filter((level) => level.price <= lastPrice + tolerance)
+    .filter((level) => level.price - halfWidth <= lastPrice)
     .sort((left, right) => right.price - left.price);
   const resistances = clusterLevels(resistanceLevels, tolerance)
-    .filter((level) => level.price >= lastPrice - tolerance)
+    .filter((level) => level.price + halfWidth >= lastPrice)
     .sort((left, right) => left.price - right.price);
-  const fallbackSupport = Math.min(...hourlyCandles.slice(-72).map((candle) => candle.low));
-  const fallbackResistance = Math.max(...hourlyCandles.slice(-72).map((candle) => candle.high));
+  const fallbackSupport = Math.min(
+    lastPrice,
+    ...hourlyCandles.slice(-72).map((candle) => candle.low),
+  );
+  const fallbackResistance = Math.max(
+    lastPrice,
+    ...hourlyCandles.slice(-72).map((candle) => candle.high),
+  );
   const support = supports[0] ?? { price: fallbackSupport, weight: 1, touches: 1 };
-  const resistance = resistances.find((level) => level.price > support.price + tolerance)
-    ?? { price: fallbackResistance, weight: 1, touches: 1 };
-  const halfWidth = Math.max(atr * 0.35, lastPrice * 0.00075);
+  const resistance = resistances.find((level) => (
+    level.price + halfWidth >= lastPrice
+    && level.price > support.price + tolerance
+  )) ?? { price: fallbackResistance, weight: 1, touches: 1 };
   const supportLow = support.price - halfWidth;
   const supportHigh = support.price + halfWidth;
   const resistanceLow = resistance.price - halfWidth;

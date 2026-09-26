@@ -1,6 +1,9 @@
 name: R4 quality
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - fix/r4-decision-semantics

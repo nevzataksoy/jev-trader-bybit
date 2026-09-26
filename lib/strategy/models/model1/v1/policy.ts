@@ -101,13 +101,11 @@ function setupIsViable(
     return (market.regime === "range" || judgments.regime.choice === "range")
       && channelPosition <= 0.55
       && market.price_zscore_20 <= -0.15
-      && judgments.reversal_confirmation >= 0.45
       && supportDistance <= supportProximityLimit(market);
   }
   if (setup === "bear_rebound") {
     return (market.regime === "bear_trend" || judgments.regime.choice === "downtrend")
       && market.countertrend_rebound_score >= Math.max(0, config.minBearReboundScore - 0.08)
-      && judgments.reversal_confirmation >= 0.5
       && supportDistance <= supportProximityLimit(market);
   }
   return false;
@@ -176,11 +174,12 @@ function evaluateOpportunity(
   const roundTripCostPct = feePct * 2 + market.bid_ask_spread_pct + config.estimatedSlippagePct * 2;
   const exitCostPct = feePct + market.bid_ask_spread_pct / 2 + config.estimatedSlippagePct;
   const structuralExit = resistanceExitSignal(market, position, exitCostPct);
-  const reduce = judgments.cut_position >= config.cutPositionProbability
-    || judgments.disorderly >= config.disorderlyProbability
+  const reduce = position.status === "held" && (
+    judgments.cut_position >= config.cutPositionProbability
     || setup === "reduce"
     || structuralExit
-    || (position.status === "held" && directionEdge <= -config.minDirectionalEdge);
+    || directionEdge <= -config.minDirectionalEdge
+  );
 
   const { reward, rewardSource, risk, targetDistance, invalidationDistance, rewardRiskRatio } = structuralRewardRisk(market, setup);
   if (reduce) {
@@ -235,17 +234,22 @@ function evaluateOpportunity(
   if (expectedNetEdgePct < config.minExpectedNetEdgePct) blockers.push("NET_EDGE_LOW");
   if (judgments.liquidity_ok < config.minLiquidityProbability) blockers.push("LIQUIDITY_LOW");
   if (judgments.disorderly >= config.disorderlyProbability) blockers.push("DISORDERLY_MARKET");
-  const fatalBlockers = blockers.length > 0;
+  if (position.status === "flat" && judgments.cut_position >= config.cutPositionProbability) blockers.push("THESIS_INVALIDATED");
+  const counterTrendSetup = setup === "range_reversion" || setup === "bear_rebound";
+  const hardBlockers = blockers.filter((blocker) => (
+    blocker !== "NET_EDGE_LOW"
+    && !(counterTrendSetup && blocker === "DIRECTIONAL_EDGE_LOW")
+  ));
   const pendingBlocker = readiness === "wait_close"
     ? "PENDING_CLOSE"
     : readiness === "wait_retest" ? "PENDING_RETEST" : null;
-  if (!fatalBlockers && pendingBlocker) blockers.push(pendingBlocker);
-  const candidate = !fatalBlockers && readiness !== "no_entry";
+  if (hardBlockers.length === 0 && pendingBlocker) blockers.push(pendingBlocker);
+  const candidate = hardBlockers.length === 0 && readiness !== "no_entry";
   const readyNow = candidate && pendingBlocker === null && readinessScore >= 0.2;
   const opportunityScore = candidate
     ? Math.max(0.0001, successProbability * setupQuality * judgments.liquidity_ok
       * (0.5 + readinessScore) * Math.min(2, Math.max(0.5, rewardRiskRatio))
-      * (1 + expectedNetEdgePct / Math.max(risk, 0.1)))
+      * (1 + Math.max(structuralNetRoomPct, 0) / Math.max(risk, 0.1)))
     : 0;
   return {
     setup,
@@ -287,9 +291,12 @@ export function buildPortfolioJudgments(
         - judgment.disorderly * 0.2
         - judgment.cut_position * 0.25,
     );
-    const qualified = judgment.best_setup.choice !== "none"
+    const setup = judgment.best_setup.choice;
+    const counterTrendSetup = setup === "range_reversion" || setup === "bear_rebound";
+    const directionQualified = counterTrendSetup || directionEdge >= config.minDirectionalEdge;
+    const qualified = setup !== "none"
       && judgment.entry_readiness.choice !== "no_entry"
-      && directionEdge >= config.minDirectionalEdge
+      && directionQualified
       && judgment.setup_quality.score >= config.minSetupScore
       && judgment.liquidity_ok >= config.minLiquidityProbability
       && judgment.disorderly < config.disorderlyProbability

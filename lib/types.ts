@@ -271,6 +271,27 @@ export interface JevPortfolioJudgments {
   };
 }
 
+export type CandidatePlanLocation =
+  | "inside_support"
+  | "near_support"
+  | "between_levels"
+  | "inside_resistance"
+  | "unstructured";
+
+export interface CandidateTradePlan {
+  status: "available" | "unavailable";
+  location: CandidatePlanLocation;
+  supportDistancePct: number;
+  supportStrength: number;
+  resistanceDistancePct: number;
+  resistanceStrength: number;
+  invalidationDistancePct: number;
+  target1DistancePct: number;
+  target1AfterCostRoomPct: number;
+  target1RewardRiskRatio: number;
+  roundTripCostPct: number;
+}
+
 export interface JevDecision {
   asset: TradeAsset;
   action: TradeAction;
@@ -287,6 +308,7 @@ export interface JevDecision {
   policyReason: string;
   blockedBy?: DecisionBlocker[];
   diagnostics?: DecisionBlocker[];
+  candidatePlan?: CandidateTradePlan;
   readinessScore?: number;
   signalState?: DecisionSignalState;
   grossExpectedEdgePct?: number;

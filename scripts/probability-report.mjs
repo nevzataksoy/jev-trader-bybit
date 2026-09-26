@@ -147,10 +147,11 @@ try {
 
   const groups = new Map();
   for (const sample of samples) {
-    const key = `${sample.engineId}:${sample.asset}`;
+    const key = `${sample.engineId}:${sample.asset}:${sample.methodRevision}`;
     const group = groups.get(key) ?? {
       engine: sample.engineId,
       asset: sample.asset,
+      method_revision: sample.methodRevision,
       samples: 0,
       target: 0,
       invalidation: 0,
@@ -188,9 +189,10 @@ try {
   const buckets = new Map();
   for (const sample of samples) {
     const bucket = targetBucket(sample.targetProbability);
-    const key = `${sample.engineId}:${bucket}`;
+    const key = `${sample.engineId}:${sample.methodRevision}:${bucket}`;
     const item = buckets.get(key) ?? {
       engine: sample.engineId,
+      method_revision: sample.methodRevision,
       bucket,
       samples: 0,
       forecastSum: 0,
@@ -205,6 +207,7 @@ try {
   console.log("\\nTarget-first calibration buckets");
   console.table([...buckets.values()].map((item) => ({
     engine: item.engine,
+    method_revision: item.method_revision,
     probability_bucket: item.bucket,
     samples: item.samples,
     mean_forecast: Number((item.forecastSum / item.samples).toFixed(4)),
@@ -216,16 +219,24 @@ try {
 
   const perEngine = new Map();
   for (const sample of samples) {
-    const item = perEngine.get(sample.engineId) ?? { samples: 0, brier: 0, logLoss: 0 };
+    const key = `${sample.engineId}:${sample.methodRevision}`;
+    const item = perEngine.get(key) ?? {
+      engine: sample.engineId,
+      methodRevision: sample.methodRevision,
+      samples: 0,
+      brier: 0,
+      logLoss: 0,
+    };
     item.samples += 1;
     item.brier += sample.brier;
     item.logLoss += sample.logLoss;
-    perEngine.set(sample.engineId, item);
+    perEngine.set(key, item);
   }
 
   console.log("\\nCalibration readiness");
-  console.table([...perEngine.entries()].map(([engine, item]) => ({
-    engine,
+  console.table([...perEngine.values()].map((item) => ({
+    engine: item.engine,
+    method_revision: item.methodRevision,
     matured_forecasts: item.samples,
     multiclass_brier: Number((item.brier / item.samples).toFixed(4)),
     log_loss: Number((item.logLoss / item.samples).toFixed(4)),

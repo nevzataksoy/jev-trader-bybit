@@ -38,6 +38,7 @@ interface StatefulOpportunity {
   readyNow: boolean;
   reduce: boolean;
   blockers: DecisionBlocker[];
+  diagnostics: DecisionBlocker[];
 }
 
 function clamp(value: number, minimum = 0, maximum = 1) {
@@ -216,6 +217,7 @@ function evaluateOpportunity(
       readyNow: false,
       reduce: true,
       blockers: [],
+      diagnostics: [],
     };
   }
 
@@ -254,10 +256,11 @@ function evaluateOpportunity(
     ? "PENDING_CLOSE"
     : readiness === "wait_retest" ? "PENDING_RETEST" : null;
   const counterTrendSetup = setup === "range_reversion" || setup === "bear_rebound";
-  const hardBlockers = blockers.filter((blocker) => (
-    blocker !== "NET_EDGE_LOW"
-    && !(counterTrendSetup && blocker === "DIRECTIONAL_EDGE_LOW")
+  const diagnostics = blockers.filter((blocker) => (
+    blocker === "NET_EDGE_LOW"
+    || (counterTrendSetup && blocker === "DIRECTIONAL_EDGE_LOW")
   ));
+  const hardBlockers = blockers.filter((blocker) => !diagnostics.includes(blocker));
   const rotationCanAllocate = rotation.action.choice === "enter"
     || rotation.action.choice === "increase"
     || rotation.action.choice === "watch";
@@ -267,12 +270,12 @@ function evaluateOpportunity(
     && hardBlockers.length === 0
     && economicsExecutable;
 
-  if (pendingEligible && pendingBlocker) blockers.push(pendingBlocker);
-
   const candidate = rotationCanAllocate
     && hardBlockers.length === 0
     && economicsExecutable
     && readiness !== "no_entry";
+  const decisionBlockers = [...hardBlockers];
+  if (pendingEligible && pendingBlocker) decisionBlockers.push(pendingBlocker);
   const readyNow = candidate
     && (rotation.action.choice === "enter" || rotation.action.choice === "increase")
     && readiness === "enter_now"
@@ -302,7 +305,8 @@ function evaluateOpportunity(
     pendingEligible,
     readyNow,
     reduce: false,
-    blockers,
+    blockers: decisionBlockers,
+    diagnostics,
   };
 }
 
@@ -416,6 +420,7 @@ export function buildDecisions(
       readinessScore: opportunity.readinessScore,
       signalState: state,
       blockedBy: uniqueBlockers,
+      diagnostics: opportunity.diagnostics,
       grossExpectedEdgePct: opportunity.grossExpectedEdgePct,
       successProbability: opportunity.successProbability,
       roundTripCostPct: opportunity.roundTripCostPct,
@@ -428,7 +433,8 @@ export function buildDecisions(
         + `support→resistance room ${opportunity.targetDistancePct.toFixed(3)}%, reward ${opportunity.rewardDistancePct.toFixed(3)}% via ${opportunity.rewardSource}, invalidation distance ${opportunity.invalidationDistancePct.toFixed(3)}%, R:R ${opportunity.rewardRiskRatio.toFixed(2)}; `
         + `gross edge ${opportunity.grossExpectedEdgePct.toFixed(3)}%, round-trip cost ${opportunity.roundTripCostPct.toFixed(3)}%, net edge ${opportunity.expectedNetEdgePct.toFixed(3)}%; `
         + `native ${portfolioJudgments.gross_risk_budget.choice} risk budget ${grossRiskBudgetPct.toFixed(2)}%; target ${target.toFixed(2)}% versus current ${current.toFixed(2)}%; `
-        + (uniqueBlockers.length ? `blocked by ${uniqueBlockers.join(", ")}.` : "eligible for deterministic execution."),
+        + (uniqueBlockers.length ? `blocked by ${uniqueBlockers.join(", ")}.` : "eligible for deterministic execution.")
+        + (opportunity.diagnostics.length ? ` Diagnostics: ${opportunity.diagnostics.join(", ")}.` : ""),
       judgments: judgments[asset],
       rotationAction: rotation.action.choice,
       rotationSuitability: rotation.suitability.choice,

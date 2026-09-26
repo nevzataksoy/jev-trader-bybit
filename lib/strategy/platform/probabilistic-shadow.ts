@@ -16,6 +16,13 @@ function sigmoid(value: number) {
   return 1 / (1 + Math.exp(-value));
 }
 
+export function tradeFlowReliability(windowSeconds: number | null | undefined) {
+  const window = finite(windowSeconds);
+  if (window <= 0) return 0;
+  const referenceWindowSeconds = 120;
+  return clamp(Math.exp(-Math.abs(Math.log(window / referenceWindowSeconds))));
+}
+
 function softmax(values: number[]) {
   const maximum = Math.max(...values);
   const exponentials = values.map((value) => Math.exp(value - maximum));
@@ -59,12 +66,10 @@ export function buildShadowProbabilityForecast(
   const resistanceStrength = clamp(finite(plan.resistanceStrength));
   const readiness = readinessScore(decision);
   const geometry = geometrySignal(plan.target1DistancePct, plan.invalidationDistancePct);
-  const flow = clamp(finite(market.trade_flow_imbalance), -1, 1);
-  const wallBias = clamp(
-    finite(market.bid_wall_strength) - finite(market.ask_wall_strength),
-    -1,
-    1,
-  );
+  const rawFlow = clamp(finite(market.trade_flow_imbalance), -1, 1);
+  const flowReliability = tradeFlowReliability(market.trade_flow_window_seconds);
+  const effectiveFlow = rawFlow * flowReliability;
+  const orderbookImbalance = clamp(finite(market.orderbook_imbalance), -1, 1);
   const squeezeSpread = clamp(
     finite(market.short_squeeze_risk) - finite(market.long_squeeze_risk),
     -1,
@@ -81,8 +86,8 @@ export function buildShadowProbabilityForecast(
     + (liquidity - 0.5) * 0.45
     + (supportStrength - 0.5) * 0.50
     + geometry * 0.55
-    + flow * 0.25
-    + wallBias * 0.15
+    + effectiveFlow * 0.18
+    + orderbookImbalance * 0.18
     + squeezeSpread * 0.10;
 
   const invalidationLogit =
@@ -91,8 +96,8 @@ export function buildShadowProbabilityForecast(
     + (cutRisk - 0.5) * 0.85
     + (disorder - 0.5) * 0.35
     - geometry * 0.45
-    - flow * 0.20
-    - wallBias * 0.10;
+    - effectiveFlow * 0.15
+    - orderbookImbalance * 0.15;
 
   const timeoutLogit =
     0.35
@@ -115,11 +120,11 @@ export function buildShadowProbabilityForecast(
     -0.35
       + directionEdge * 0.35
       + (trendEfficiency - 0.5) * 0.65
-      + flow * 0.45
+      + effectiveFlow * 0.25
+      + orderbookImbalance * 0.20
       + volumeExpansion * 0.40
       + oi1h * 0.25
       + squeezeSpread * 0.30
-      + wallBias * 0.15
       + breakoutMomentum * 0.30
       - (resistanceStrength - 0.5) * 0.30,
   );
@@ -131,13 +136,22 @@ export function buildShadowProbabilityForecast(
 
   return {
     status: "uncalibrated_shadow",
-    methodRevision: "shadow-probability-r1",
+    methodRevision: "shadow-probability-r2",
     horizonMinutes: 240,
     target1BeforeInvalidation,
     invalidationBeforeTarget1,
     timeout,
     target1BreakConditional,
     expectedNetReturnPct,
+    featureQuality: {
+      tradeFlowWindowSeconds: Number.isFinite(market.trade_flow_window_seconds)
+        ? market.trade_flow_window_seconds
+        : null,
+      tradeFlowReliability: flowReliability,
+      effectiveTradeFlow: effectiveFlow,
+      orderbookImbalance,
+      rawWallStrengthIgnored: true,
+    },
     executionAuthoritative: false,
   };
 }
